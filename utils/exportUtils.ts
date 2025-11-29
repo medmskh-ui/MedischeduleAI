@@ -62,6 +62,12 @@ const hexToRgb = (hex: string): [number, number, number] | null => {
 };
 
 export const exportToPDF = async (schedule: DailySchedule[], doctors: Doctor[], config: ScheduleConfig) => {
+  // Filter schedule to include only the selected month/year
+  const selectedSchedule = schedule.filter(day => {
+    const d = new Date(day.date);
+    return d.getMonth() === config.month && d.getFullYear() === config.year;
+  });
+
   // A4 Portrait
   const doc = new jsPDF('p', 'mm', 'a4'); 
   
@@ -108,16 +114,11 @@ export const exportToPDF = async (schedule: DailySchedule[], doctors: Doctor[], 
   const colWidth = 190 / 7;
 
   // Prepare Body Data with Styles (Colors)
-  const tableBody = schedule.map(day => {
+  const tableBody = selectedSchedule.map(day => {
     // Match Word format: Date and Month only (e.g. 1 ม.ค.)
-    // Removed day name (e.g., (จ)) as requested
+    // Removed day name and holiday name to prevent wrapping
     let dateStr = format(new Date(day.date), 'd MMM', { locale: th });
     
-    if (day.holidayName) {
-      // Truncate holiday name similar to Word
-      dateStr += `\n(${day.holidayName.substring(0, 10)}..)`;
-    }
-
     const isHoliday = day.isHoliday;
     
     // Helper to create a cell object with specific background color
@@ -213,12 +214,18 @@ export const exportToPDF = async (schedule: DailySchedule[], doctors: Doctor[], 
 };
 
 export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[], config: ScheduleConfig) => {
+  // Filter schedule to include only the selected month/year
+  const selectedSchedule = schedule.filter(day => {
+    const d = new Date(day.date);
+    return d.getMonth() === config.month && d.getFullYear() === config.year;
+  });
+
   const buddhistYear = config.year + 543;
   const monthName = format(new Date(config.year, config.month), 'MMMM', { locale: th });
   const fullTitle = `ตารางเวรแพทย์อายุรกรรม ประจำเดือน ${monthName} พ.ศ. ${buddhistYear}`;
   
   // Logic for Compact Mode (e.g., if days >= 31, use smaller font/margins)
-  const isCompact = schedule.length >= 31;
+  const isCompact = selectedSchedule.length >= 31;
 
   const FONT_NAME = "TH SarabunPSK";
   // Reduce font size slightly for 31-day months to fit on page
@@ -285,11 +292,10 @@ export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[],
     })
   ];
 
-  schedule.forEach(day => {
+  selectedSchedule.forEach(day => {
     let dateStr = format(new Date(day.date), 'd MMM', { locale: th }); // Short date for column space
-    if (day.holidayName) {
-      dateStr += `\n(${day.holidayName.substring(0, 10)}..)`; // Truncate holiday name if too long
-    }
+    // Removed holiday name logic to prevent wrapping
+    
     const isHoliday = day.isHoliday;
     const defaultRowColor = isHoliday ? "FEF2F2" : "FFFFFF"; // Red-50 or White
 
