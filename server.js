@@ -119,69 +119,21 @@ app.post('/api/generate-schedule', async (req, res) => {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const prompt = createPrompt(doctors, config);
   
-  const responseSchema = {
-    type: Type.ARRAY,
-    items: {
-      type: Type.OBJECT,
-      properties: {
-        date: { type: Type.STRING },
-        isHoliday: { type: Type.BOOLEAN },
-        shifts: {
-          type: Type.OBJECT,
-          properties: {
-            morning: {
-              type: Type.OBJECT,
-              properties: {
-                icu: { type: Type.STRING, nullable: true },
-                general: { type: Type.STRING, nullable: true }
-              },
-              nullable: true
-            },
-            afternoon: {
-              type: Type.OBJECT,
-              properties: {
-                icu: { type: Type.STRING },
-                general: { type: Type.STRING }
-              }
-            },
-            night: {
-              type: Type.OBJECT,
-              properties: {
-                icu: { type: Type.STRING },
-                general: { type: Type.STRING }
-              }
-            }
-          }
-        }
-      }
-    }
-  };
+  // NOTE: Schema validation removed to improve speed and avoid Vercel timeouts (10s limit on free tier).
+  // gemini-1.5-flash is used for maximum speed.
 
-  const generateWithModel = async (modelName) => {
-    console.log(`[${new Date().toISOString()}] Attempting generation with model: ${modelName}`);
-    return await ai.models.generateContent({
-      model: modelName,
+  try {
+    // Single fast call. No fallback logic to keep latency absolute minimum.
+    console.log(`[${new Date().toISOString()}] Calling Gemini-1.5-Flash (Fastest Mode)...`);
+    
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
-        responseSchema: responseSchema
+        // responseSchema is removed intentionally for speed
       }
     });
-  };
-
-  try {
-    let response;
-    
-    // 1. Try Primary Model (Flash) - FASTEST, prevents timeout
-    try {
-      response = await generateWithModel('gemini-2.5-flash');
-    } catch (primaryError) {
-      console.warn(`[${new Date().toISOString()}] Primary model (Flash) failed: ${primaryError.message}`);
-      console.warn("Switching to fallback model (Pro)...");
-      
-      // 2. Fallback to Secondary Model (Pro) - Slower, but smarter
-      response = await generateWithModel('gemini-3-pro-preview');
-    }
 
     const generatedSchedule = JSON.parse(response.text);
     
@@ -193,7 +145,7 @@ app.post('/api/generate-schedule', async (req, res) => {
 
   } catch (error) {
     console.error("Gemini AI Final Error:", error);
-    res.status(500).json({ error: "Failed to generate schedule (All models failed): " + error.message });
+    res.status(500).json({ error: "Failed to generate schedule: " + error.message });
   }
 });
 
