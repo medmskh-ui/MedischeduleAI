@@ -133,7 +133,7 @@ export const exportToPDF = async (schedule: DailySchedule[], doctors: Doctor[], 
         styles: {
           fillColor: (rgb || [255, 255, 255]) as [number, number, number],
           textColor: [50, 50, 50] as [number, number, number],
-          fontStyle: 'normal'
+          fontStyle: 'normal' as 'normal'
         }
       };
     };
@@ -144,9 +144,9 @@ export const exportToPDF = async (schedule: DailySchedule[], doctors: Doctor[], 
         styles: { 
           fillColor: (isHoliday ? [254, 242, 242] : [255, 255, 255]) as [number, number, number], // Red-50 if holiday
           textColor: (isHoliday ? [185, 28, 28] : [0, 0, 0]) as [number, number, number],
-          fontStyle: isHoliday ? 'bold' : 'normal',
-          valign: 'middle',
-          halign: 'center'
+          fontStyle: (isHoliday ? 'bold' : 'normal') as 'bold' | 'normal',
+          valign: 'middle' as 'middle',
+          halign: 'center' as 'center'
         } 
       },
       createCell(day.shifts.morning?.general),
@@ -394,3 +394,4 @@ export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[],
   const blob = await Packer.toBlob(doc);
   saveAs(blob, `medical_schedule_${buddhistYear}_${config.month + 1}.docx`);
 };
+    

@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
 import { User } from '../types';
-import { Activity, Lock, User as UserIcon, ArrowRight } from 'lucide-react';
+import { Activity, Lock, User as UserIcon, ArrowRight, Loader2 } from 'lucide-react';
+import { dataService } from '../services/dataService';
 
 interface Props {
   onLogin: (user: User) => void;
@@ -11,18 +12,21 @@ const Login: React.FC<Props> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
-    // Simple mock authentication
-    if (username === 'admin' && password === 'password') {
-      onLogin({ username: 'Admin User', role: 'admin' });
-    } else if (username === 'user' && password === 'password') {
-      onLogin({ username: 'General User', role: 'user' });
-    } else {
-      setError('ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง');
+    try {
+      const user = await dataService.login(username, password);
+      onLogin(user);
+    } catch (err: any) {
+      console.error(err);
+      setError('ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง (หรือยังไม่ได้เปิด Server)');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -50,6 +54,7 @@ const Login: React.FC<Props> = ({ onLogin }) => {
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-medical-400 outline-none transition-all"
                   placeholder="Username"
                   autoFocus
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -64,6 +69,7 @@ const Login: React.FC<Props> = ({ onLogin }) => {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-medical-400 outline-none transition-all"
                   placeholder="Password"
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -76,25 +82,25 @@ const Login: React.FC<Props> = ({ onLogin }) => {
 
             <button 
               type="submit"
-              className="w-full bg-medical-600 text-white py-3 rounded-lg font-semibold hover:bg-medical-700 transition flex items-center justify-center gap-2 group"
+              disabled={isLoading}
+              className="w-full bg-medical-600 text-white py-3 rounded-lg font-semibold hover:bg-medical-700 transition flex items-center justify-center gap-2 group disabled:opacity-70"
             >
-              เข้าสู่ระบบ <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+              {isLoading ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" /> กำลังตรวจสอบ...
+                </>
+              ) : (
+                <>
+                  เข้าสู่ระบบ <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                </>
+              )}
             </button>
           </form>
 
           <div className="mt-8 pt-6 border-t border-gray-100">
-            <p className="text-xs text-center text-gray-500 font-medium mb-3">บัญชีสำหรับทดสอบระบบ</p>
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="bg-gray-50 p-2 rounded border border-gray-200 text-center">
-                <div className="font-bold text-medical-700">Admin</div>
-                <div className="text-gray-500">user: admin</div>
-                <div className="text-gray-500">pass: password</div>
-              </div>
-              <div className="bg-gray-50 p-2 rounded border border-gray-200 text-center">
-                <div className="font-bold text-blue-700">User</div>
-                <div className="text-gray-500">user: user</div>
-                <div className="text-gray-500">pass: password</div>
-              </div>
+            <p className="text-xs text-center text-gray-500 font-medium mb-3">เชื่อมต่อฐานข้อมูล Neon Database</p>
+            <div className="text-[10px] text-gray-400 text-center">
+              กรุณารัน <code className="bg-gray-100 px-1 rounded">node server.js</code> เพื่อเริ่มระบบ
             </div>
           </div>
         </div>

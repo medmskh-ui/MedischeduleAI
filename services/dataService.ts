@@ -1,56 +1,74 @@
 
-import { Doctor, DailySchedule, ScheduleConfig } from '../types';
-
-// STORAGE KEYS
-const STORAGE_KEYS = {
-  DOCTORS: 'medischedule_doctors',
-  SCHEDULE: 'medischedule_schedule',
-  CONFIG: 'medischedule_config'
-};
+import { Doctor, DailySchedule, ScheduleConfig, User } from '../types';
 
 /**
- * Data Service Layer
- * ------------------
- * ปัจจุบัน: ใช้ LocalStorage เพื่อบันทึกข้อมูลใน Browser (ให้ใช้งานได้ทันทีโดยไม่ต้องมี Server)
- * อนาคต (To Connect Neon): เปลี่ยนโค้ดในฟังก์ชันเหล่านี้ให้ใช้ fetch() ไปยัง API Server ของคุณ
- * 
- * ตัวอย่างการเชื่อมต่อ API:
- * const response = await fetch('https://your-api.com/doctors');
- * return await response.json();
+ * Data Service Layer (API Version)
+ * เชื่อมต่อกับ Backend Server (server.js) ผ่าน HTTP API
  */
+
+const API_BASE = '/api';
+
+const handleResponse = async (response: Response) => {
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `API Error: ${response.status}`);
+  }
+  return response.json();
+};
+
 export const dataService = {
   
+  // --- AUTHENTICATION ---
+  login: async (username: string, password: string): Promise<User> => {
+    const res = await fetch(`${API_BASE}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    return handleResponse(res);
+  },
+
   // --- DOCTORS ---
   getDoctors: async (): Promise<Doctor[]> => {
-    // TODO for Neon: return fetch('/api/doctors').then(res => res.json());
-    const data = localStorage.getItem(STORAGE_KEYS.DOCTORS);
-    return data ? JSON.parse(data) : [];
+    const res = await fetch(`${API_BASE}/doctors`);
+    return handleResponse(res);
   },
 
   saveDoctors: async (doctors: Doctor[]) => {
-    // TODO for Neon: fetch('/api/doctors', { method: 'POST', body: JSON.stringify(doctors) });
-    localStorage.setItem(STORAGE_KEYS.DOCTORS, JSON.stringify(doctors));
+    // Note: In a real app, you might want to patch individual records.
+    // For simplicity, we send the full list to be synchronized.
+    await fetch(`${API_BASE}/doctors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(doctors)
+    });
   },
 
   // --- SCHEDULE ---
   getSchedule: async (): Promise<DailySchedule[]> => {
-    // TODO for Neon: return fetch('/api/schedules').then(res => res.json());
-    const data = localStorage.getItem(STORAGE_KEYS.SCHEDULE);
-    return data ? JSON.parse(data) : [];
+    const res = await fetch(`${API_BASE}/schedules`);
+    return handleResponse(res);
   },
 
   saveSchedule: async (schedule: DailySchedule[]) => {
-    // TODO for Neon: fetch('/api/schedules', { method: 'POST', body: JSON.stringify(schedule) });
-    localStorage.setItem(STORAGE_KEYS.SCHEDULE, JSON.stringify(schedule));
+    await fetch(`${API_BASE}/schedules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(schedule)
+    });
   },
 
-  // --- CONFIG (Holidays/Month settings) ---
+  // --- CONFIG ---
   getConfig: async (): Promise<ScheduleConfig | null> => {
-    const data = localStorage.getItem(STORAGE_KEYS.CONFIG);
-    return data ? JSON.parse(data) : null;
+    const res = await fetch(`${API_BASE}/config`);
+    return handleResponse(res);
   },
 
   saveConfig: async (config: ScheduleConfig) => {
-    localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(config));
+    await fetch(`${API_BASE}/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config)
+    });
   }
 };
