@@ -8,9 +8,10 @@ import th from 'date-fns/locale/th';
 interface Props {
   config: ScheduleConfig;
   setConfig: React.Dispatch<React.SetStateAction<ScheduleConfig>>;
+  isAdmin: boolean;
 }
 
-const ConfigPanel: React.FC<Props> = ({ config, setConfig }) => {
+const ConfigPanel: React.FC<Props> = ({ config, setConfig, isAdmin }) => {
   const currentYear = new Date().getFullYear();
   // Generate range: 5 years before and 5 years after current year (11 years total)
   const years = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
@@ -24,6 +25,9 @@ const ConfigPanel: React.FC<Props> = ({ config, setConfig }) => {
   const [holidayName, setHolidayName] = useState('');
 
   const handleDayClick = (day: number) => {
+    // Only Admin can edit holidays
+    if (!isAdmin) return;
+
     const date = new Date(config.year, config.month, day);
     const dateStr = format(date, 'yyyy-MM-dd');
     const isWeekend = date.getDay() === 0 || date.getDay() === 6;
@@ -84,13 +88,17 @@ const ConfigPanel: React.FC<Props> = ({ config, setConfig }) => {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-6 border-b border-gray-200 bg-gray-50/50">
            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-            <Calendar className="text-medical-600" /> ตั้งค่าวันเดือนปี และวันหยุด
+            <Calendar className="text-medical-600" /> {isAdmin ? 'ตั้งค่าวันเดือนปี และวันหยุด' : 'ปฏิทินวันหยุด'}
           </h2>
-          <p className="text-sm text-gray-500 mt-1">เลือกเดือนที่ต้องการจัดตาราง และกำหนดวันหยุดราชการเพิ่มเติม (ระบุชื่อวันหยุดได้)</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {isAdmin 
+              ? 'เลือกเดือนที่ต้องการจัดตาราง และกำหนดวันหยุดราชการเพิ่มเติม' 
+              : 'ดูปฏิทินวันหยุดประจำเดือน'}
+          </p>
         </div>
 
         <div className="p-6">
-          {/* Month/Year Selection */}
+          {/* Month/Year Selection - Available for ALL to navigate */}
           <div className="flex flex-col sm:flex-row gap-4 mb-8 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
             <div className="flex-1">
               <label className="block text-sm font-semibold text-gray-700 mb-1">เดือน</label>
@@ -156,12 +164,13 @@ const ConfigPanel: React.FC<Props> = ({ config, setConfig }) => {
                     <button
                       key={day}
                       onClick={() => handleDayClick(day)}
-                      disabled={isWeekend}
+                      disabled={isWeekend || !isAdmin} // Disable if not admin or if weekend
                       className={`
                         h-28 p-2 border-b border-r border-gray-100 text-left relative transition-all group flex flex-col justify-between
-                        hover:bg-gray-50
+                        ${isAdmin ? 'hover:bg-gray-50 cursor-pointer' : 'cursor-default'}
                         ${isWeekend ? 'bg-orange-50/50 cursor-default' : ''}
-                        ${isCustomHoliday ? 'bg-red-50 hover:bg-red-100' : ''}
+                        ${isCustomHoliday ? 'bg-red-50' : ''}
+                        ${isCustomHoliday && isAdmin ? 'hover:bg-red-100' : ''}
                       `}
                     >
                       <span className={`
@@ -181,7 +190,7 @@ const ConfigPanel: React.FC<Props> = ({ config, setConfig }) => {
                         </div>
                       )}
 
-                      {!isWeekend && !isCustomHoliday && (
+                      {!isWeekend && !isCustomHoliday && isAdmin && (
                         <span className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 text-xs text-gray-400 font-medium">
                           ตั้งวันหยุด
                         </span>
@@ -196,10 +205,12 @@ const ConfigPanel: React.FC<Props> = ({ config, setConfig }) => {
              </div>
           </div>
           
-          <div className="mt-4 flex items-start gap-2 text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
-             <Info size={16} className="mt-0.5 text-medical-600 flex-shrink-0" />
-             <p>คลิกที่วันธรรมดาเพื่อกำหนดให้เป็น "วันหยุดนักขัตฤกษ์" (มีเวรเช้า)</p>
-          </div>
+          {isAdmin && (
+            <div className="mt-4 flex items-start gap-2 text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+               <Info size={16} className="mt-0.5 text-medical-600 flex-shrink-0" />
+               <p>คลิกที่วันธรรมดาเพื่อกำหนดให้เป็น "วันหยุดนักขัตฤกษ์" (มีเวรเช้า)</p>
+            </div>
+          )}
 
           {/* List of custom holidays */}
           {config.customHolidays.length > 0 && (
@@ -213,12 +224,14 @@ const ConfigPanel: React.FC<Props> = ({ config, setConfig }) => {
                        <span className="text-sm font-medium text-gray-700">{format(new Date(h.date), 'd MMM yyyy', { locale: th })}</span>
                        <span className="text-sm text-gray-500 border-l border-gray-200 pl-2 ml-2">{h.name || '-'}</span>
                     </div>
-                    <button 
-                      onClick={() => removeHolidayDirectly(h.date)}
-                      className="text-gray-400 hover:text-red-600 p-1 hover:bg-red-50 rounded"
-                    >
-                      <X size={16} />
-                    </button>
+                    {isAdmin && (
+                      <button 
+                        onClick={() => removeHolidayDirectly(h.date)}
+                        className="text-gray-400 hover:text-red-600 p-1 hover:bg-red-50 rounded"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -228,8 +241,8 @@ const ConfigPanel: React.FC<Props> = ({ config, setConfig }) => {
         </div>
       </div>
 
-      {/* Holiday Edit Modal */}
-      {selectedDate && (
+      {/* Holiday Edit Modal (Admin Only) */}
+      {selectedDate && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">

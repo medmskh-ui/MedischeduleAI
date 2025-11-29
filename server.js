@@ -59,7 +59,7 @@ app.post('/api/login', async (req, res) => {
     // Direct comparison (Plain text)
     // Note: 'password_hash' column name is kept to avoid DB schema changes, but it stores plain text now.
     if (password === user.password_hash) {
-      res.json({ username: user.username, role: user.role });
+      res.json({ username: user.username, role: user.role, name: user.name });
     } else {
       res.status(401).json({ error: 'Invalid password' });
     }
@@ -69,25 +69,29 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// 1.1 Register (Plain Text Password)
+// 1.1 Register (Plain Text Password, Force Viewer Role)
 app.post('/api/register', async (req, res) => {
-  const { username, password, role } = req.body;
+  const { username, password, name } = req.body;
   
-  if (!username || !password || !role) {
-    return res.status(400).json({ error: 'Missing fields' });
+  if (!username || !password || !name) {
+    return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน (Username, Password, ชื่อ-นามสกุล)' });
   }
 
   try {
-    // Store password directly as plain text
+    // Force role = 'viewer' for new registrations
     await pool.query(
-      'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)',
-      [username, password, role]
+      'INSERT INTO users (username, password_hash, role, name) VALUES ($1, $2, $3, $4)',
+      [username, password, 'viewer', name]
     );
 
-    res.json({ success: true, message: 'User created' });
+    res.json({ success: true, message: 'User created successfully' });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to create user (Username might exist)' });
+    // Check for duplicate username error (Postgres code 23505)
+    if (err.code === '23505') {
+        return res.status(409).json({ error: 'ชื่อผู้ใช้งานนี้มีอยู่ในระบบแล้ว' });
+    }
+    res.status(500).json({ error: 'Failed to create user' });
   }
 });
 

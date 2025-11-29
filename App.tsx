@@ -76,22 +76,15 @@ const App: React.FC = () => {
   }, [config, isDataLoaded]);
 
   // 3. Initialize schedule structure when config changes (Month/Year change)
-  // We strictly check if the *current schedule* matches the *current config*.
-  // If not, we generate empty slots.
   useEffect(() => {
     if (!isDataLoaded) return;
     
-    // Check if current schedule matches the selected month/year
-    // If schedule is empty or belongs to a different month, we assume we need to init/switch
     const daysInMonth = getDaysInMonth(new Date(config.year, config.month));
-    
-    // Helper to check if a date string belongs to current config month
     const belongsToCurrentMonth = (dateStr: string) => {
       const d = new Date(dateStr);
       return d.getFullYear() === config.year && d.getMonth() === config.month;
     };
 
-    // Only rebuild if the schedule is empty OR the first entry doesn't match current month
     const shouldRebuild = schedule.length === 0 || !belongsToCurrentMonth(schedule[0].date);
 
     if (shouldRebuild) {
@@ -117,8 +110,6 @@ const App: React.FC = () => {
       }
       setSchedule(newSchedule);
     } else {
-      // If we are in the same month, just update holiday flags in case they changed
-      // This allows adding a holiday without wiping the schedule
       setSchedule(prev => prev.map(day => {
         const dateObj = new Date(day.date);
         const dayOfWeek = dateObj.getDay();
@@ -126,13 +117,11 @@ const App: React.FC = () => {
         const customHoliday = config.customHolidays.find(h => h.date === day.date);
         const isHoliday = isWeekendDay || !!customHoliday;
         
-        // Only update if status changed
         if (day.isHoliday !== isHoliday || day.holidayName !== customHoliday?.name) {
            return {
              ...day,
              isHoliday,
              holidayName: customHoliday?.name,
-             // Ensure morning slot exists if it becomes holiday
              shifts: {
                ...day.shifts,
                morning: isHoliday && !day.shifts.morning ? { icu: null, general: null } : day.shifts.morning
@@ -146,24 +135,19 @@ const App: React.FC = () => {
   }, [config.year, config.month, config.customHolidays, isDataLoaded]);
 
   const updateSchedule = (date: string, shift: 'morning' | 'afternoon' | 'night', type: 'icu' | 'general', doctorId: string) => {
-    // Only Admin can update
     if (user?.role !== 'admin') return;
 
     setSchedule(prev => prev.map(day => {
       if (day.date === date) {
         const newShifts = { ...day.shifts };
         
-        // 1. Update the selected shift
         if (shift === 'morning' && newShifts.morning) {
           newShifts.morning = { ...newShifts.morning, [type]: doctorId };
           
-          // RULE: Holiday Cross-Ward Chaining
-          // If General Morning -> Set ICU Afternoon & Night to same
           if (type === 'general') {
              newShifts.afternoon = { ...newShifts.afternoon, icu: doctorId };
              newShifts.night = { ...newShifts.night, icu: doctorId };
           }
-          // If ICU Morning -> Set General Afternoon & Night to same
           else if (type === 'icu') {
              newShifts.afternoon = { ...newShifts.afternoon, general: doctorId };
              newShifts.night = { ...newShifts.night, general: doctorId };
@@ -171,8 +155,6 @@ const App: React.FC = () => {
 
         } else if (shift === 'afternoon') {
           newShifts.afternoon = { ...newShifts.afternoon, [type]: doctorId };
-          // RULE: Auto-sync Night shift when Afternoon is set (Continuity)
-          // Unless explicitly changed later, Afternoon and Night are usually same person
           newShifts.night = { ...newShifts.night, [type]: doctorId };
         } else {
           newShifts.night = { ...newShifts.night, [type]: doctorId };
@@ -185,7 +167,6 @@ const App: React.FC = () => {
   };
 
   const handleGenerate = async () => {
-    // Only Admin
     if (user?.role !== 'admin') return;
 
     if (doctors.filter(d => d.active).length < 2) {
@@ -193,7 +174,6 @@ const App: React.FC = () => {
       return;
     }
 
-    // Check availability of API key
     if (!process.env.API_KEY) {
       alert("API Key not found in environment variables.");
       return;
@@ -202,8 +182,6 @@ const App: React.FC = () => {
     setIsGenerating(true);
     try {
       const generated = await generateScheduleWithGemini(doctors, config);
-      
-      // Merge generated shifts with local structure (to keep holiday names etc)
       setSchedule(prev => prev.map(day => {
         const genDay = generated.find(g => g.date === day.date);
         if (!genDay) return day;
@@ -260,7 +238,7 @@ const App: React.FC = () => {
 
   const handleLogin = (u: User) => {
     setUser(u);
-    setCurrentView('schedule'); // Always start at schedule
+    setCurrentView('schedule');
   };
 
   const handleLogout = () => {
@@ -274,6 +252,7 @@ const App: React.FC = () => {
   const monthName = format(new Date(config.year, config.month), 'MMMM', { locale: th });
   const buddhistYear = config.year + 543;
   const isAdmin = user.role === 'admin';
+  const isViewer = user.role === 'viewer'; // Check viewer role
 
   if (!isDataLoaded) {
     return <div className="min-h-screen flex items-center justify-center text-medical-600 font-bold">กำลังโหลดข้อมูล...</div>;
@@ -296,33 +275,37 @@ const App: React.FC = () => {
            </div>
 
            <div className="flex items-center gap-4">
-             {/* View Switcher (Desktop) - Only show extended tabs if Admin */}
-             {isAdmin && (
-               <nav className="hidden md:flex bg-gray-100 p-1 rounded-lg">
-                  <button 
-                    onClick={() => setCurrentView('schedule')}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${currentView === 'schedule' ? 'bg-white text-medical-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    ตารางเวร
-                  </button>
-                  <button 
-                    onClick={() => setCurrentView('doctors')}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${currentView === 'doctors' ? 'bg-white text-medical-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    รายชื่อแพทย์
-                  </button>
-                  <button 
-                    onClick={() => setCurrentView('holidays')}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${currentView === 'holidays' ? 'bg-white text-medical-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    ตั้งค่าวันหยุด
-                  </button>
-               </nav>
-             )}
+             {/* View Switcher (Desktop) - HIDE tabs for viewer */}
+             <nav className="hidden md:flex bg-gray-100 p-1 rounded-lg">
+                <button 
+                  onClick={() => setCurrentView('schedule')}
+                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${currentView === 'schedule' ? 'bg-white text-medical-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  ตารางเวร
+                </button>
+                {/* Viewer cannot see Doctors/Holidays tab */}
+                {!isViewer && (
+                  <>
+                    <button 
+                      onClick={() => setCurrentView('doctors')}
+                      className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${currentView === 'doctors' ? 'bg-white text-medical-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      รายชื่อแพทย์
+                    </button>
+                    <button 
+                      onClick={() => setCurrentView('holidays')}
+                      className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${currentView === 'holidays' ? 'bg-white text-medical-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      วันหยุด
+                    </button>
+                  </>
+                )}
+             </nav>
 
              <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
                <div className="hidden md:block text-right">
-                 <div className="text-sm font-bold text-gray-800">{user.username}</div>
+                 {/* Display Name instead of Username */}
+                 <div className="text-sm font-bold text-gray-800">{user.name || user.username}</div>
                  <div className="text-[10px] text-gray-500 capitalize">{user.role}</div>
                </div>
                <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition" title="ออกจากระบบ">
@@ -392,49 +375,53 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {currentView === 'doctors' && isAdmin && (
+        {currentView === 'doctors' && !isViewer && (
           <DoctorManager 
             doctors={doctors} 
             setDoctors={setDoctors} 
             config={config}
+            isAdmin={isAdmin}
           />
         )}
 
-        {currentView === 'holidays' && isAdmin && (
+        {currentView === 'holidays' && !isViewer && (
           <ConfigPanel 
             config={config} 
             setConfig={setConfig} 
+            isAdmin={isAdmin}
           />
         )}
 
       </main>
 
-      {/* Mobile Navigation Bar (Admin Only) */}
-      {isAdmin && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 md:hidden flex justify-around p-2 z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-          <button 
-            onClick={() => setCurrentView('schedule')}
-            className={`flex flex-col items-center p-2 rounded-lg ${currentView === 'schedule' ? 'text-medical-600' : 'text-gray-400'}`}
-          >
-            <LayoutDashboard size={20} />
-            <span className="text-[10px] mt-1 font-medium">ตารางเวร</span>
-          </button>
-          <button 
-             onClick={() => setCurrentView('doctors')}
-             className={`flex flex-col items-center p-2 rounded-lg ${currentView === 'doctors' ? 'text-medical-600' : 'text-gray-400'}`}
-          >
-            <Users size={20} />
-            <span className="text-[10px] mt-1 font-medium">แพทย์</span>
-          </button>
-          <button 
-             onClick={() => setCurrentView('holidays')}
-             className={`flex flex-col items-center p-2 rounded-lg ${currentView === 'holidays' ? 'text-medical-600' : 'text-gray-400'}`}
-          >
-            <CalendarDays size={20} />
-            <span className="text-[10px] mt-1 font-medium">วันหยุด</span>
-          </button>
-        </div>
-      )}
+      {/* Mobile Navigation Bar - HIDE items for viewer */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 md:hidden flex justify-around p-2 z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <button 
+          onClick={() => setCurrentView('schedule')}
+          className={`flex flex-col items-center p-2 rounded-lg ${currentView === 'schedule' ? 'text-medical-600' : 'text-gray-400'}`}
+        >
+          <LayoutDashboard size={20} />
+          <span className="text-[10px] mt-1 font-medium">ตารางเวร</span>
+        </button>
+        {!isViewer && (
+          <>
+            <button 
+                onClick={() => setCurrentView('doctors')}
+                className={`flex flex-col items-center p-2 rounded-lg ${currentView === 'doctors' ? 'text-medical-600' : 'text-gray-400'}`}
+            >
+              <Users size={20} />
+              <span className="text-[10px] mt-1 font-medium">แพทย์</span>
+            </button>
+            <button 
+                onClick={() => setCurrentView('holidays')}
+                className={`flex flex-col items-center p-2 rounded-lg ${currentView === 'holidays' ? 'text-medical-600' : 'text-gray-400'}`}
+            >
+              <CalendarDays size={20} />
+              <span className="text-[10px] mt-1 font-medium">วันหยุด</span>
+            </button>
+          </>
+        )}
+      </div>
 
     </div>
   );

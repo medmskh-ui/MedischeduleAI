@@ -46,9 +46,10 @@ export interface ScheduleConfig {
   customHolidays: Holiday[]; // Array of Holiday objects
 }
 
-export type UserRole = 'admin' | 'user';
+export type UserRole = 'admin' | 'user' | 'viewer';
 
 export interface User {
   username: string;
   role: UserRole;
+  name?: string;
 }

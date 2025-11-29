@@ -9,6 +9,7 @@ interface Props {
   doctors: Doctor[];
   setDoctors: React.Dispatch<React.SetStateAction<Doctor[]>>;
   config: ScheduleConfig;
+  isAdmin: boolean;
 }
 
 const DOCTOR_COLORS = [
@@ -26,7 +27,7 @@ const DOCTOR_COLORS = [
   '#FFF0F5', // Lavender Blush
 ];
 
-const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config }) => {
+const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }) => {
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -98,9 +99,11 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config }) => {
         <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gray-50/50">
           <div>
             <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-              <User className="text-medical-600" /> จัดการรายชื่อแพทย์
+              <User className="text-medical-600" /> {isAdmin ? 'จัดการรายชื่อแพทย์' : 'รายชื่อแพทย์'}
             </h2>
-            <p className="text-sm text-gray-500 mt-1">เพิ่ม ลบ แก้ไขข้อมูล และกำหนดสถานะ (Active/Inactive)</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {isAdmin ? 'เพิ่ม ลบ แก้ไขข้อมูล และกำหนดสถานะ (Active/Inactive)' : 'ดูรายชื่อและเบอร์ติดต่อแพทย์'}
+            </p>
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
@@ -115,34 +118,37 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config }) => {
         </div>
 
         <div className="p-6 bg-white">
-          <form onSubmit={addDoctor} className="flex flex-col md:flex-row gap-3 items-end mb-8 p-4 bg-medical-50 rounded-xl border border-medical-100">
-             <div className="flex-1 w-full">
-               <label className="block text-xs font-semibold text-gray-600 mb-1 ml-1">ชื่อ-นามสกุล</label>
-               <input
-                type="text"
-                placeholder="Ex. นพ. ใจดี รักษาดี"
-                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-medical-400 outline-none bg-white"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-              />
-             </div>
-             <div className="w-full md:w-1/3">
-               <label className="block text-xs font-semibold text-gray-600 mb-1 ml-1">เบอร์ติดต่อ</label>
-               <input
-                type="text"
-                placeholder="08x-xxx-xxxx"
-                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-medical-400 outline-none bg-white"
-                value={newPhone}
-                onChange={(e) => setNewPhone(e.target.value)}
-              />
-             </div>
-             <button
-              type="submit"
-              className="w-full md:w-auto bg-medical-600 text-white px-6 py-2.5 rounded-lg hover:bg-medical-700 transition flex items-center justify-center gap-2 font-medium"
-            >
-              <UserPlus size={20} /> เพิ่มแพทย์
-            </button>
-          </form>
+          {/* Add Doctor Form - ADMIN ONLY */}
+          {isAdmin && (
+            <form onSubmit={addDoctor} className="flex flex-col md:flex-row gap-3 items-end mb-8 p-4 bg-medical-50 rounded-xl border border-medical-100">
+               <div className="flex-1 w-full">
+                 <label className="block text-xs font-semibold text-gray-600 mb-1 ml-1">ชื่อ-นามสกุล</label>
+                 <input
+                  type="text"
+                  placeholder="Ex. นพ. ใจดี รักษาดี"
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-medical-400 outline-none bg-white"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+               </div>
+               <div className="w-full md:w-1/3">
+                 <label className="block text-xs font-semibold text-gray-600 mb-1 ml-1">เบอร์ติดต่อ</label>
+                 <input
+                  type="text"
+                  placeholder="08x-xxx-xxxx"
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-medical-400 outline-none bg-white"
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                />
+               </div>
+               <button
+                type="submit"
+                className="w-full md:w-auto bg-medical-600 text-white px-6 py-2.5 rounded-lg hover:bg-medical-700 transition flex items-center justify-center gap-2 font-medium"
+              >
+                <UserPlus size={20} /> เพิ่มแพทย์
+              </button>
+            </form>
+          )}
 
           <div className="overflow-hidden rounded-lg border border-gray-200">
             <table className="w-full text-left border-collapse">
@@ -152,19 +158,19 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config }) => {
                   <th className="p-4 text-sm font-semibold text-gray-600">ชื่อ-นามสกุล</th>
                   <th className="p-4 text-sm font-semibold text-gray-600">เบอร์ติดต่อ</th>
                   <th className="p-4 text-sm font-semibold text-gray-600 text-center">วันไม่ว่าง</th>
-                  <th className="p-4 text-sm font-semibold text-gray-600 text-right">จัดการ</th>
+                  {isAdmin && <th className="p-4 text-sm font-semibold text-gray-600 text-right">จัดการ</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {doctors.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-gray-400">
-                      ยังไม่มีข้อมูลแพทย์ กรุณาเพิ่มรายชื่อ
+                    <td colSpan={isAdmin ? 5 : 4} className="p-8 text-center text-gray-400">
+                      ยังไม่มีข้อมูลแพทย์
                     </td>
                   </tr>
                 ) : filteredDoctors.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-gray-400">
+                    <td colSpan={isAdmin ? 5 : 4} className="p-8 text-center text-gray-400">
                       ไม่พบข้อมูลที่ค้นหา
                     </td>
                   </tr>
@@ -174,9 +180,11 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config }) => {
                       <td className="p-4 text-center">
                          <button
                           onClick={() => toggleActiveStatus(doc.id)}
+                          disabled={!isAdmin} 
                           className={`
                              w-8 h-8 rounded-full flex items-center justify-center transition-colors
-                             ${doc.active ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'bg-gray-200 text-gray-400 hover:bg-gray-300'}
+                             ${doc.active ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'}
+                             ${isAdmin ? 'hover:bg-green-200 cursor-pointer' : 'cursor-default'}
                           `}
                           title={doc.active ? "สถานะ: Active" : "สถานะ: Inactive"}
                          >
@@ -200,6 +208,7 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config }) => {
                         {doc.phone || '-'}
                       </td>
                       <td className="p-4 text-center">
+                        {/* AVAILABLE FOR EVERYONE TO EDIT LEAVE */}
                         <button
                           onClick={() => setSelectedDocForLeave(doc)}
                           disabled={!doc.active}
@@ -218,15 +227,17 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config }) => {
                              : 'ระบุวันลา'}
                         </button>
                       </td>
-                      <td className="p-4 text-right">
-                        <button
-                          onClick={() => removeDoctor(doc.id)}
-                          className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition"
-                          title="ลบรายชื่อ"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </td>
+                      {isAdmin && (
+                        <td className="p-4 text-right">
+                          <button
+                            onClick={() => removeDoctor(doc.id)}
+                            className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition"
+                            title="ลบรายชื่อ"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
