@@ -1,4 +1,3 @@
-
 import express from 'express';
 import pg from 'pg';
 import cors from 'cors';
@@ -111,6 +110,9 @@ app.post('/api/generate-schedule', async (req, res) => {
     return res.status(400).json({ error: "Missing doctors or config data" });
   }
 
+  console.log(`[${new Date().toISOString()}] Start generating schedule...`);
+  const startTime = Date.now();
+
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     
@@ -161,6 +163,11 @@ app.post('/api/generate-schedule', async (req, res) => {
     });
 
     const generatedSchedule = JSON.parse(response.text);
+    
+    const endTime = Date.now();
+    const duration = (endTime - startTime) / 1000;
+    console.log(`[${new Date().toISOString()}] Finished generating schedule in ${duration}s`);
+
     res.json(generatedSchedule);
 
   } catch (error) {
