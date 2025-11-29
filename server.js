@@ -31,67 +31,66 @@ const createPrompt = (doctors, config) => {
   const activeDoctors = doctors.filter(d => d.active);
 
   return `
-    I need to generate a medical roster for ${monthName}.
-    
-    Doctors available (Active only):
-    ${JSON.stringify(activeDoctors.map(d => ({ id: d.id, name: d.name, unavailableDates: d.unavailableDates })))}
+    Role: You are an expert medical roster scheduler.
+    Task: Generate a monthly schedule for ${monthName} (${daysInMonth} days).
 
-    Configuration:
-    - Year: ${config.year}
-    - Month (0-indexed): ${config.month}
-    - Custom Holidays (array of {date, name}): ${JSON.stringify(config.customHolidays)}
-    - Total Days: ${daysInMonth}
+    Resources:
+    - Doctors (Active): ${JSON.stringify(activeDoctors.map(d => ({ id: d.id, name: d.name, unavailableDates: d.unavailableDates })))}
+    - Config: Year ${config.year}, Month Index ${config.month}.
+    - Custom Holidays: ${JSON.stringify(config.customHolidays.map(h => h.date))}.
+    - Weekend Definition: Saturday and Sunday.
 
-    Global Rules:
-    1. Shifts are: Morning (8:31-16:30), Afternoon (16:31-00:30), Night (00:31-08:30).
-    2. Wards: ICU and General (Ordinary).
-    3. Weekdays (Mon-Fri): ONLY Afternoon and Night shifts exist. NO Morning shift.
-    4. Weekends (Sat-Sun) and Custom Holidays: ALL 3 shifts (Morning, Afternoon, Night) exist.
+    Definitions:
+    - "Holiday" includes both Weekends (Sat/Sun) AND Custom Holidays provided above.
+    - Shifts: Morning (M), Afternoon (A), Night (N).
+    - Wards: ICU, General.
 
-    CRITICAL ASSIGNMENT LOGIC (Follow STRICTLY in order):
+    STRICT RULES (Must be followed in order of priority):
 
-    Rule 0: STRICT UNAVAILABILITY (HIGHEST PRIORITY)
-    - Check the 'unavailableDates' list for EVERY doctor.
-    - If a doctor is unavailable on Date X, they MUST NOT be assigned to ANY shift (Morning, Afternoon, or Night) on Date X.
-    - This applies to BOTH ICU and General wards.
-    - DO NOT schedule a doctor on a day they are unavailable.
+    1. UNAVAILABILITY (Highest Priority):
+       - If a doctor has a date listed in 'unavailableDates', they CANNOT be assigned to ANY shift (M, A, or N) on that specific date.
+       - Do not simply skip the day; find another available doctor.
 
-    Rule 1: DAILY CONTINUITY (Afternoon + Night)
-    - On EVERY day (Weekday or Holiday), the doctor assigned to the **Afternoon** shift MUST be the same doctor assigned to the **Night** shift on the SAME ward.
-    - ICU Afternoon == ICU Night
-    - General Afternoon == General Night
-    - Exception: Do not violate Rule 0.
+    2. DAILY CONTINUITY (Afternoon & Night Pairing):
+       - On EVERY day (Weekday or Holiday):
+       - The doctor assigned to [General Afternoon] MUST be the same as [General Night].
+       - The doctor assigned to [ICU Afternoon] MUST be the same as [ICU Night].
+       - Logic: One doctor covers the long shift from 16:30 to 08:30 next day.
 
-    Rule 2: HOLIDAY CROSS-WARD PATTERN A (General Morning -> ICU Afternoon/Night)
-    - IF it is a Weekend or Holiday:
-    - The doctor assigned to **General Ward Morning** MUST be the same doctor assigned to **ICU Afternoon** and **ICU Night**.
-    - Chain: [General Morning] -> [ICU Afternoon] -> [ICU Night] = Same Doctor.
+    3. WARD SEPARATION:
+       - On EVERY day, the doctor on [General Afternoon/Night] MUST NOT be the same as the doctor on [ICU Afternoon/Night].
 
-    Rule 3: HOLIDAY CROSS-WARD PATTERN B (ICU Morning -> General Afternoon/Night)
-    - IF it is a Weekend or Holiday:
-    - The doctor assigned to **ICU Morning** MUST be the same doctor assigned to **General Ward Afternoon** and **General Ward Night**.
-    - Chain: [ICU Morning] -> [General Afternoon] -> [General Night] = Same Doctor.
+    4. HOLIDAY & WEEKEND PATTERN (The "Cross-Over" Rule):
+       - On any "Holiday" (Sat, Sun, or Custom Holiday), you MUST assign exactly 2 doctors to cover all slots using this specific pattern:
+       - Doctor A (Role 1): Works [General Morning] AND THEN moves to [ICU Afternoon + ICU Night].
+       - Doctor B (Role 2): Works [ICU Morning] AND THEN moves to [General Afternoon + General Night].
+       - Constraint: Doctor A MUST NOT be Doctor B.
 
-    Rule 4: SIMULTANEOUS SHIFT CONFLICT
-    - A doctor CANNOT be assigned to both wards at the same time.
-    - ICU Afternoon != General Afternoon
-    - ICU Night != General Night
-    - ICU Morning != General Morning (on holidays)
+    5. WEEKDAY PATTERN:
+       - No Morning shifts exist on Weekdays. Set Morning slots to null.
+       - Assign Doctor A to [General Afternoon + General Night].
+       - Assign Doctor B to [ICU Afternoon + ICU Night].
 
-    Rule 5: MORNING WARD CONFLICT (Holiday)
-    - The doctor on General Morning CANNOT be the same as the doctor on ICU Morning.
+    6. RESTING (Fairness):
+       - Try to space out shifts. Ideally, if a doctor works today, they should rest for at least 2 days before the next shift.
+       - AVOID assigning a doctor on consecutive days unless availability is critically low.
 
-    Output JSON format:
-    Array of objects, one for each day of the month.
-    {
-      "date": "YYYY-MM-DD",
-      "isHoliday": boolean,
-      "shifts": {
-        "morning": { "icu": "doctor_id" | null, "general": "doctor_id" | null }, // null if weekday
-        "afternoon": { "icu": "doctor_id", "general": "doctor_id" },
-        "night": { "icu": "doctor_id", "general": "doctor_id" }
-      }
-    }
+    7. FAIRNESS (Distribution):
+       - Distribute "Holiday" shifts as equally as possible among all doctors.
+
+    Output Format (JSON Array):
+    [
+      {
+        "date": "YYYY-MM-DD",
+        "isHoliday": boolean,
+        "shifts": {
+          "morning": { "icu": "uuid" | null, "general": "uuid" | null },
+          "afternoon": { "icu": "uuid", "general": "uuid" },
+          "night": { "icu": "uuid", "general": "uuid" }
+        }
+      },
+      ...
+    ]
   `;
 };
 
@@ -169,14 +168,14 @@ app.post('/api/generate-schedule', async (req, res) => {
   try {
     let response;
     
-    // 1. Try Primary Model (Pro)
+    // 1. Try Primary Model (Pro) - Best for complex logic
     try {
       response = await generateWithModel('gemini-3-pro-preview');
     } catch (primaryError) {
       console.warn(`[${new Date().toISOString()}] Primary model (Pro) failed: ${primaryError.message}`);
       console.warn("Switching to fallback model (Flash)...");
       
-      // 2. Fallback to Secondary Model (Flash)
+      // 2. Fallback to Secondary Model (Flash) - Faster, might be less strict on complex rules
       response = await generateWithModel('gemini-2.5-flash');
     }
 
