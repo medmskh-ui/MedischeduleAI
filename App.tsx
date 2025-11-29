@@ -174,10 +174,7 @@ const App: React.FC = () => {
       return;
     }
 
-    if (!process.env.API_KEY) {
-      alert("API Key not found in environment variables.");
-      return;
-    }
+    // Removed client-side API Key check. The server now handles the key.
 
     setIsGenerating(true);
     try {
@@ -190,9 +187,9 @@ const App: React.FC = () => {
           shifts: genDay.shifts
         };
       }));
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert("เกิดข้อผิดพลาดในการสร้างตาราง: " + error);
+      alert("เกิดข้อผิดพลาดในการสร้างตาราง: " + error.message);
     } finally {
       setIsGenerating(false);
     }
