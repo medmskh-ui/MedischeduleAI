@@ -85,9 +85,11 @@ const App: React.FC = () => {
       return d.getFullYear() === config.year && d.getMonth() === config.month;
     };
 
-    const shouldRebuild = schedule.length === 0 || !belongsToCurrentMonth(schedule[0].date);
+    // Check if the current schedule matches the requested month (start date)
+    const isCurrentMonthStart = schedule.length > 0 && belongsToCurrentMonth(schedule[0].date);
 
-    if (shouldRebuild) {
+    if (!isCurrentMonthStart) {
+      // Rebuild completely if empty or wrong start month
       const newSchedule: DailySchedule[] = [];
       for (let i = 1; i <= daysInMonth; i++) {
         const date = new Date(config.year, config.month, i);
@@ -110,26 +112,33 @@ const App: React.FC = () => {
       }
       setSchedule(newSchedule);
     } else {
-      setSchedule(prev => prev.map(day => {
-        const dateObj = new Date(day.date);
-        const dayOfWeek = dateObj.getDay();
-        const isWeekendDay = dayOfWeek === 0 || dayOfWeek === 6;
-        const customHoliday = config.customHolidays.find(h => h.date === day.date);
-        const isHoliday = isWeekendDay || !!customHoliday;
-        
-        if (day.isHoliday !== isHoliday || day.holidayName !== customHoliday?.name) {
-           return {
-             ...day,
-             isHoliday,
-             holidayName: customHoliday?.name,
-             shifts: {
-               ...day.shifts,
-               morning: isHoliday && !day.shifts.morning ? { icu: null, general: null } : day.shifts.morning
-             }
-           };
-        }
-        return day;
-      }));
+      // If we have data, we must ensure it strictly belongs to this month (filter out data from other months loaded from DB)
+      setSchedule(prev => {
+        // 1. Filter: Keep only days that belong to the selected month
+        const filtered = prev.filter(day => belongsToCurrentMonth(day.date));
+
+        // 2. Map: Update holidays info for the filtered days
+        return filtered.map(day => {
+          const dateObj = new Date(day.date);
+          const dayOfWeek = dateObj.getDay();
+          const isWeekendDay = dayOfWeek === 0 || dayOfWeek === 6;
+          const customHoliday = config.customHolidays.find(h => h.date === day.date);
+          const isHoliday = isWeekendDay || !!customHoliday;
+          
+          if (day.isHoliday !== isHoliday || day.holidayName !== customHoliday?.name) {
+             return {
+               ...day,
+               isHoliday,
+               holidayName: customHoliday?.name,
+               shifts: {
+                 ...day.shifts,
+                 morning: isHoliday && !day.shifts.morning ? { icu: null, general: null } : day.shifts.morning
+               }
+             };
+          }
+          return day;
+        });
+      });
     }
 
   }, [config.year, config.month, config.customHolidays, isDataLoaded]);
