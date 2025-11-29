@@ -172,15 +172,15 @@ app.post('/api/generate-schedule', async (req, res) => {
   try {
     let response;
     
-    // 1. Try Primary Model (Pro) - Best for complex logic
+    // 1. Try Primary Model (Flash) - FASTEST, prevents timeout
     try {
-      response = await generateWithModel('gemini-3-pro-preview');
-    } catch (primaryError) {
-      console.warn(`[${new Date().toISOString()}] Primary model (Pro) failed: ${primaryError.message}`);
-      console.warn("Switching to fallback model (Flash)...");
-      
-      // 2. Fallback to Secondary Model (Flash) - Faster, might be less strict on complex rules
       response = await generateWithModel('gemini-2.5-flash');
+    } catch (primaryError) {
+      console.warn(`[${new Date().toISOString()}] Primary model (Flash) failed: ${primaryError.message}`);
+      console.warn("Switching to fallback model (Pro)...");
+      
+      // 2. Fallback to Secondary Model (Pro) - Slower, but smarter
+      response = await generateWithModel('gemini-3-pro-preview');
     }
 
     const generatedSchedule = JSON.parse(response.text);
