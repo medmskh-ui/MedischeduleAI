@@ -1,0 +1,5 @@
+{
+  "name": "MediSchedule AI",
+  "description": "Smart scheduling application for medical staff. Generates ICU and General Ward rosters with AI-powered fairness, supporting specific shift rules, custom holidays, and exports to PDF/Word.",
+  "requestFramePermissions": []
+}
