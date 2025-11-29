@@ -25,6 +25,24 @@ const DOCTOR_COLORS = [
   '#F0E68C', // Khaki
   '#E6E6FA', // Lavender
   '#FFF0F5', // Lavender Blush
+  '#D4F0F0', // Mint
+  '#FFDAC1', // Peach
+  '#E2F0CB', // Lime
+  '#B5EAD7', // Seafoam
+  '#C7CEEA', // Periwinkle
+  '#F4A6A6', // Salmon
+  '#F9E07F', // Mustard/Yellow
+  '#D0F4DE', // Light Green
+  '#A9DEF9', // Light Blue
+  '#E4C1F9', // Light Purple
+  '#FCF6BD', // Pale Yellow
+  '#FF99C8', // Bright Pink
+  '#D0D0D0', // Darker Gray
+  '#FDE2E4', // Piggy Pink
+  '#FAD2E1', // Mimi Pink
+  '#C5DEDD', // Beau Blue
+  '#DBCDF0', // Soap
+  '#D7F9F1'  // Ice Blue
 ];
 
 const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }) => {
