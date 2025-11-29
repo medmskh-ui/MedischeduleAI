@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { ScheduleConfig } from '../types';
 import { Calendar, Info, X, Trash2, Save } from 'lucide-react';
 import { getDaysInMonth, format } from 'date-fns';
-import { th } from 'date-fns/locale';
+import th from 'date-fns/locale/th';
 
 interface Props {
   config: ScheduleConfig;

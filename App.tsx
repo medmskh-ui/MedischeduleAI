@@ -1,15 +1,16 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Doctor, DailySchedule, ScheduleConfig, User } from './types';
 import DoctorManager from './components/DoctorManager';
 import ConfigPanel from './components/ConfigPanel';
 import ScheduleTable from './components/ScheduleTable';
 import Login from './components/Login';
 import { generateScheduleWithGemini } from './services/geminiService';
+import { dataService } from './services/dataService';
 import { exportToPDF, exportToDocx } from './utils/exportUtils';
 import { getDaysInMonth, isWeekend, format } from 'date-fns';
 import { Sparkles, FileText, Download, Activity, CalendarDays, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
-import { th } from 'date-fns/locale';
+import th from 'date-fns/locale/th';
 
 type View = 'schedule' | 'doctors' | 'holidays';
 
@@ -25,29 +26,84 @@ const App: React.FC = () => {
   const [schedule, setSchedule] = useState<DailySchedule[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  
+  // Track if initial data load is complete to prevent overwriting storage with empty states
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
+  
+  // Ref to prevent cyclic dependency on schedule regeneration
+  const isFirstRender = useRef(true);
 
-  // Initialize schedule structure when config changes
+  // 1. Load Data on Mount
   useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [loadedDoctors, loadedSchedule, loadedConfig] = await Promise.all([
+          dataService.getDoctors(),
+          dataService.getSchedule(),
+          dataService.getConfig()
+        ]);
+
+        if (loadedDoctors.length > 0) setDoctors(loadedDoctors);
+        if (loadedSchedule.length > 0) setSchedule(loadedSchedule);
+        if (loadedConfig) setConfig(loadedConfig);
+        
+        setIsDataLoaded(true);
+      } catch (error) {
+        console.error("Failed to load data:", error);
+        setIsDataLoaded(true); // Proceed anyway
+      }
+    };
+    loadData();
+  }, []);
+
+  // 2. Auto-Save Effects (Run only after data is loaded)
+  useEffect(() => {
+    if (isDataLoaded) {
+      dataService.saveDoctors(doctors);
+    }
+  }, [doctors, isDataLoaded]);
+
+  useEffect(() => {
+    if (isDataLoaded) {
+      dataService.saveSchedule(schedule);
+    }
+  }, [schedule, isDataLoaded]);
+
+  useEffect(() => {
+    if (isDataLoaded) {
+      dataService.saveConfig(config);
+    }
+  }, [config, isDataLoaded]);
+
+  // 3. Initialize schedule structure when config changes (Month/Year change)
+  // We strictly check if the *current schedule* matches the *current config*.
+  // If not, we generate empty slots.
+  useEffect(() => {
+    if (!isDataLoaded) return;
+    
+    // Check if current schedule matches the selected month/year
+    // If schedule is empty or belongs to a different month, we assume we need to init/switch
     const daysInMonth = getDaysInMonth(new Date(config.year, config.month));
-    const newSchedule: DailySchedule[] = [];
+    
+    // Helper to check if a date string belongs to current config month
+    const belongsToCurrentMonth = (dateStr: string) => {
+      const d = new Date(dateStr);
+      return d.getFullYear() === config.year && d.getMonth() === config.month;
+    };
 
-    for (let i = 1; i <= daysInMonth; i++) {
-      const date = new Date(config.year, config.month, i);
-      const dateStr = format(date, 'yyyy-MM-dd');
-      const dayOfWeek = date.getDay();
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-      const customHoliday = config.customHolidays.find(h => h.date === dateStr);
-      const isHoliday = isWeekend || !!customHoliday;
+    // Only rebuild if the schedule is empty OR the first entry doesn't match current month
+    const shouldRebuild = schedule.length === 0 || !belongsToCurrentMonth(schedule[0].date);
 
-      // Preserve existing data if date matches
-      const existing = schedule.find(s => s.date === dateStr);
-      if (existing) {
-        newSchedule.push({ 
-          ...existing, 
-          isHoliday,
-          holidayName: customHoliday?.name 
-        });
-      } else {
+    if (shouldRebuild) {
+      const newSchedule: DailySchedule[] = [];
+      for (let i = 1; i <= daysInMonth; i++) {
+        const date = new Date(config.year, config.month, i);
+        const dateStr = format(date, 'yyyy-MM-dd');
+        const dayOfWeek = date.getDay();
+        const isWeekendDay = dayOfWeek === 0 || dayOfWeek === 6;
+        const customHoliday = config.customHolidays.find(h => h.date === dateStr);
+        const isHoliday = isWeekendDay || !!customHoliday;
+
         newSchedule.push({
           date: dateStr,
           isHoliday: isHoliday,
@@ -59,9 +115,35 @@ const App: React.FC = () => {
           }
         });
       }
+      setSchedule(newSchedule);
+    } else {
+      // If we are in the same month, just update holiday flags in case they changed
+      // This allows adding a holiday without wiping the schedule
+      setSchedule(prev => prev.map(day => {
+        const dateObj = new Date(day.date);
+        const dayOfWeek = dateObj.getDay();
+        const isWeekendDay = dayOfWeek === 0 || dayOfWeek === 6;
+        const customHoliday = config.customHolidays.find(h => h.date === day.date);
+        const isHoliday = isWeekendDay || !!customHoliday;
+        
+        // Only update if status changed
+        if (day.isHoliday !== isHoliday || day.holidayName !== customHoliday?.name) {
+           return {
+             ...day,
+             isHoliday,
+             holidayName: customHoliday?.name,
+             // Ensure morning slot exists if it becomes holiday
+             shifts: {
+               ...day.shifts,
+               morning: isHoliday && !day.shifts.morning ? { icu: null, general: null } : day.shifts.morning
+             }
+           };
+        }
+        return day;
+      }));
     }
-    setSchedule(newSchedule);
-  }, [config.year, config.month, config.customHolidays]);
+
+  }, [config.year, config.month, config.customHolidays, isDataLoaded]);
 
   const updateSchedule = (date: string, shift: 'morning' | 'afternoon' | 'night', type: 'icu' | 'general', doctorId: string) => {
     // Only Admin can update
@@ -192,6 +274,10 @@ const App: React.FC = () => {
   const monthName = format(new Date(config.year, config.month), 'MMMM', { locale: th });
   const buddhistYear = config.year + 543;
   const isAdmin = user.role === 'admin';
+
+  if (!isDataLoaded) {
+    return <div className="min-h-screen flex items-center justify-center text-medical-600 font-bold">กำลังโหลดข้อมูล...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 font-sarabun text-slate-900 pb-20 md:pb-0">

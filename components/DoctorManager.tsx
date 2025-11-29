@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Doctor, ScheduleConfig } from '../types';
 import { Plus, Trash2, User, Phone, Search, UserPlus, CalendarX, X, Power } from 'lucide-react';
 import { format, getDaysInMonth } from 'date-fns';
-import { th } from 'date-fns/locale';
+import th from 'date-fns/locale/th';
 
 interface Props {
   doctors: Doctor[];

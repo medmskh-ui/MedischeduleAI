@@ -1,7 +1,7 @@
 
 import { DailySchedule, Doctor, ScheduleConfig } from '../types';
 import { format } from 'date-fns';
-import { th } from 'date-fns/locale';
+import th from 'date-fns/locale/th';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
@@ -122,17 +122,17 @@ export const exportToPDF = async (schedule: DailySchedule[], doctors: Doctor[], 
     
     // Helper to create a cell object with specific background color
     const createCell = (docId: string | null) => {
-      if (!docId) return { content: '-', styles: { fillColor: [255, 255, 255] } };
+      if (!docId) return { content: '-', styles: { fillColor: [255, 255, 255] as [number, number, number] } };
       
       const doctor = doctors.find(d => d.id === docId);
-      if (!doctor) return { content: '-', styles: { fillColor: [255, 255, 255] } };
+      if (!doctor) return { content: '-', styles: { fillColor: [255, 255, 255] as [number, number, number] } };
 
       const rgb = hexToRgb(doctor.color);
       return {
         content: doctor.name, // Name only, no phone
         styles: {
-          fillColor: rgb || [255, 255, 255],
-          textColor: [50, 50, 50],
+          fillColor: (rgb || [255, 255, 255]) as [number, number, number],
+          textColor: [50, 50, 50] as [number, number, number],
           fontStyle: 'normal'
         }
       };
@@ -142,8 +142,8 @@ export const exportToPDF = async (schedule: DailySchedule[], doctors: Doctor[], 
       { 
         content: dateStr, 
         styles: { 
-          fillColor: isHoliday ? [254, 242, 242] : [255, 255, 255], // Red-50 if holiday
-          textColor: isHoliday ? [185, 28, 28] : [0, 0, 0],
+          fillColor: (isHoliday ? [254, 242, 242] : [255, 255, 255]) as [number, number, number], // Red-50 if holiday
+          textColor: (isHoliday ? [185, 28, 28] : [0, 0, 0]) as [number, number, number],
           fontStyle: isHoliday ? 'bold' : 'normal',
           valign: 'middle',
           halign: 'center'
@@ -161,9 +161,9 @@ export const exportToPDF = async (schedule: DailySchedule[], doctors: Doctor[], 
   autoTable(doc, {
     head: [
       [
-        { content: 'วันที่', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fillColor: [31, 41, 55], textColor: 255 } }, // Dark Gray #1F2937
-        { content: 'สามัญ / นอกแผนก', colSpan: 3, styles: { halign: 'center', fillColor: [127, 149, 209], textColor: 255 } }, // #7F95D1
-        { content: 'ICU / CCU', colSpan: 3, styles: { halign: 'center', fillColor: [240, 114, 92], textColor: 255 } } // #F0725C
+        { content: 'วันที่', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fillColor: [31, 41, 55] as [number, number, number], textColor: 255 } }, // Dark Gray #1F2937
+        { content: 'สามัญ / นอกแผนก', colSpan: 3, styles: { halign: 'center', fillColor: [127, 149, 209] as [number, number, number], textColor: 255 } }, // #7F95D1
+        { content: 'ICU / CCU', colSpan: 3, styles: { halign: 'center', fillColor: [240, 114, 92] as [number, number, number], textColor: 255 } } // #F0725C
       ],
       [
         'เช้า', 'บ่าย', 'ดึก',
@@ -181,8 +181,8 @@ export const exportToPDF = async (schedule: DailySchedule[], doctors: Doctor[], 
       valign: 'middle',
       halign: 'center',
       lineWidth: 0.1,
-      lineColor: [200, 200, 200],
-      textColor: [0, 0, 0]
+      lineColor: [200, 200, 200] as [number, number, number],
+      textColor: [0, 0, 0] as [number, number, number]
     },
     // Enforce equal column width for all 7 columns
     columnStyles: {
@@ -198,7 +198,7 @@ export const exportToPDF = async (schedule: DailySchedule[], doctors: Doctor[], 
       font: 'Sarabun', 
       fontStyle: 'bold',
       lineWidth: 0.1,
-      lineColor: [200, 200, 200]
+      lineColor: [200, 200, 200] as [number, number, number]
     },
     // Customize the sub-header row (index 1) to be gray like Word
     willDrawCell: (data) => {

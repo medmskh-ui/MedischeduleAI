@@ -2,7 +2,7 @@
 import React from 'react';
 import { DailySchedule, Doctor } from '../types';
 import { format } from 'date-fns';
-import { th } from 'date-fns/locale';
+import th from 'date-fns/locale/th';
 
 interface Props {
   schedule: DailySchedule[];
