@@ -30,7 +30,11 @@ const createPrompt = (doctors, config) => {
   // Filter ONLY active doctors for the AI
   const activeDoctors = doctors.filter(d => d.active);
 
+  // Generate a unique ID to prevent caching
+  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+
   return `
+    Request ID: ${requestId} (Please generate a fresh schedule)
     Role: You are an expert medical roster scheduler.
     Task: Generate a monthly schedule for ${monthName} (${daysInMonth} days).
 
@@ -333,11 +337,30 @@ app.get('/api/schedules', async (req, res) => {
 app.post('/api/schedules', async (req, res) => {
   const schedule = req.body;
   if (!Array.isArray(schedule)) return res.status(400).json({ error: 'Expected array' });
+  
+  // If empty payload, nothing to save, return success
+  if (schedule.length === 0) return res.json({ success: true });
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
+    // 1. Clean & Rebuild Strategy
+    // Determine the date range of the incoming schedule to clear old data
+    const dates = schedule.map(s => new Date(s.date).toISOString().split('T')[0]);
+    // Find min and max date in the payload (assuming payload covers a month or specific range)
+    // Basic sorting to find range
+    dates.sort();
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1];
+
+    // DELETE existing records in this range to ensure no stale data remains
+    await client.query(
+      'DELETE FROM daily_schedules WHERE date >= $1 AND date <= $2',
+      [startDate, endDate]
+    );
+
+    // 2. Insert New Data
     for (const day of schedule) {
       // Extract YYYY-MM-DD
       const dateStr = new Date(day.date).toISOString().split('T')[0];
@@ -345,10 +368,6 @@ app.post('/api/schedules', async (req, res) => {
       await client.query(`
         INSERT INTO daily_schedules (date, is_holiday, holiday_name, shifts)
         VALUES ($1, $2, $3, $4)
-        ON CONFLICT (date) DO UPDATE SET
-          is_holiday = EXCLUDED.is_holiday,
-          holiday_name = EXCLUDED.holiday_name,
-          shifts = EXCLUDED.shifts;
       `, [dateStr, day.isHoliday, day.holidayName, JSON.stringify(day.shifts)]);
     }
 
