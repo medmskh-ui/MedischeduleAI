@@ -217,9 +217,17 @@ export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[],
   const monthName = format(new Date(config.year, config.month), 'MMMM', { locale: th });
   const fullTitle = `ตารางเวรแพทย์อายุรกรรม ประจำเดือน ${monthName} พ.ศ. ${buddhistYear}`;
   
+  // Logic for Compact Mode (e.g., if days >= 31, use smaller font/margins)
+  const isCompact = schedule.length >= 31;
+
   const FONT_NAME = "TH SarabunPSK";
-  const FONT_SIZE_PT = 14;
+  // Reduce font size slightly for 31-day months to fit on page
+  const FONT_SIZE_PT = isCompact ? 13 : 14; 
   const FONT_SIZE_HALF_PT = FONT_SIZE_PT * 2; 
+
+  // Reduce vertical margins for cells and page
+  const CELL_MARGIN_Y = isCompact ? 20 : 40; // Twips
+  const PAGE_MARGIN_Y = isCompact ? 500 : 720; // 500 twips ~= 0.35 inch
 
   // Helper to create Header Cells with Borders and Centers
   const createHeaderCell = (text: string, color: string, colSpan: number = 1, rowSpan: number = 1) => new TableCell({
@@ -237,7 +245,7 @@ export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[],
     columnSpan: colSpan,
     rowSpan: rowSpan,
     verticalAlign: VerticalAlign.CENTER,
-    margins: { top: 40, bottom: 40, left: 40, right: 40 }
+    margins: { top: CELL_MARGIN_Y, bottom: CELL_MARGIN_Y, left: 40, right: 40 }
   });
   
   const createSubHeaderCell = (text: string) => new TableCell({
@@ -252,7 +260,7 @@ export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[],
     })], 
     shading: { fill: "F3F4F6", type: ShadingType.CLEAR }, // Gray-100
     verticalAlign: VerticalAlign.CENTER,
-    margins: { top: 40, bottom: 40, left: 40, right: 40 }
+    margins: { top: CELL_MARGIN_Y, bottom: CELL_MARGIN_Y, left: 40, right: 40 }
   });
 
   const tableRows = [
@@ -312,7 +320,7 @@ export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[],
          children: paragraphs,
          shading: { fill: cellColor, type: ShadingType.CLEAR },
          verticalAlign: VerticalAlign.CENTER,
-         margins: { top: 40, bottom: 40, left: 40, right: 40 }
+         margins: { top: CELL_MARGIN_Y, bottom: CELL_MARGIN_Y, left: 40, right: 40 }
        });
     };
 
@@ -324,7 +332,7 @@ export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[],
       })],
       shading: { fill: defaultRowColor, type: ShadingType.CLEAR },
       verticalAlign: VerticalAlign.CENTER,
-      margins: { top: 40, bottom: 40, left: 40, right: 40 }
+      margins: { top: CELL_MARGIN_Y, bottom: CELL_MARGIN_Y, left: 40, right: 40 }
     });
 
     tableRows.push(
@@ -344,7 +352,7 @@ export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[],
     );
   });
 
-  // Calculate total width for A4 Portrait with Narrow Margins (0.5 inch / 1.27 cm)
+  // Calculate total width for A4 Portrait with Narrow Margins
   const COL_WIDTH = 1495;
 
   const doc = new Document({
@@ -355,8 +363,8 @@ export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[],
              orientation: PageOrientation.PORTRAIT // Portrait
            },
            margin: {
-             top: 720, // 0.5 inch (Narrow)
-             bottom: 720,
+             top: PAGE_MARGIN_Y, // Dynamic margin
+             bottom: PAGE_MARGIN_Y,
              left: 720,
              right: 720
            }
@@ -394,4 +402,3 @@ export const exportToDocx = async (schedule: DailySchedule[], doctors: Doctor[],
   const blob = await Packer.toBlob(doc);
   saveAs(blob, `medical_schedule_${buddhistYear}_${config.month + 1}.docx`);
 };
-    
