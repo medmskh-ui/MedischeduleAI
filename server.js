@@ -3,6 +3,7 @@ import express from 'express';
 import pg from 'pg';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
@@ -39,6 +40,11 @@ const initDb = async () => {
 initDb();
 
 // --- ROUTES ---
+
+// Test Route
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date() });
+});
 
 // 1. Login (Plain Text Password)
 app.post('/api/login', async (req, res) => {
@@ -253,6 +259,15 @@ app.post('/api/config', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend Server running on port ${PORT}`);
-});
+// --- SERVER STARTUP ---
+
+// If running directly (e.g. 'node server.js'), start the server.
+// If imported (e.g. by Vercel), do nothing here (the exported app will be used).
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  app.listen(PORT, () => {
+    console.log(`Backend Server running on port ${PORT}`);
+  });
+}
+
+// Export app for Vercel Serverless Functions
+export default app;
