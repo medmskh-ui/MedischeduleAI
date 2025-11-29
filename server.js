@@ -40,7 +40,7 @@ initDb();
 
 // --- ROUTES ---
 
-// 1. Login
+// 1. Login (Plain Text Password)
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   try {
@@ -50,8 +50,8 @@ app.post('/api/login', async (req, res) => {
     }
     const user = result.rows[0];
     
-    // In production, use bcrypt.compare(password, user.password_hash)
-    // For this demo with the provided SQL script, we do simple check
+    // Direct comparison (Plain text)
+    // Note: 'password_hash' column name is kept to avoid DB schema changes, but it stores plain text now.
     if (password === user.password_hash) {
       res.json({ username: user.username, role: user.role });
     } else {
@@ -60,6 +60,28 @@ app.post('/api/login', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 1.1 Register (Plain Text Password)
+app.post('/api/register', async (req, res) => {
+  const { username, password, role } = req.body;
+  
+  if (!username || !password || !role) {
+    return res.status(400).json({ error: 'Missing fields' });
+  }
+
+  try {
+    // Store password directly as plain text
+    await pool.query(
+      'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)',
+      [username, password, role]
+    );
+
+    res.json({ success: true, message: 'User created' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create user (Username might exist)' });
   }
 });
 
