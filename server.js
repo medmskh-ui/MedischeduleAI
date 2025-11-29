@@ -16,7 +16,8 @@ const PORT = process.env.PORT || 3001;
 // Database Connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Required for Neon
+  ssl: { rejectUnauthorized: false }, // Required for Neon
+  options: '-c search_path=medischedule' // Set schema to medischedule
 });
 
 // Middleware
@@ -34,68 +35,32 @@ const createPrompt = (doctors, config) => {
   // Generate a unique ID to prevent caching
   const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
 
+  // Optimized Prompt: Concise instructions to save tokens and processing time
   return `
-    Request ID: ${requestId} (Please generate a fresh schedule)
-    Role: You are an expert medical roster scheduler.
-    Task: Generate a monthly schedule for ${monthName} (${daysInMonth} days).
-
+    ReqID: ${requestId}
+    Role: Medical Scheduler.
+    Task: Roster for ${monthName} (${daysInMonth} days).
+    
     Resources:
-    - Doctors (Active): ${JSON.stringify(activeDoctors.map(d => ({ id: d.id, name: d.name, unavailableDates: d.unavailableDates })))}
-    - Config: Year ${config.year}, Month Index ${config.month}.
-    - Custom Holidays: ${JSON.stringify(config.customHolidays.map(h => h.date))}.
-    - Weekend Definition: Saturday and Sunday.
+    - Docs: ${JSON.stringify(activeDoctors.map(d => ({ id: d.id, n: d.name, un: d.unavailableDates })))}
+    - Holidays: ${JSON.stringify(config.customHolidays.map(h => h.date))} (Includes Sat/Sun).
 
-    Definitions:
-    - "Holiday" includes both Weekends (Sat/Sun) AND Custom Holidays provided above.
-    - Shifts: Morning (M), Afternoon (A), Night (N).
-    - Wards: ICU, General.
-
-    STRICT RULES (Must be followed in order of priority):
-
-    1. UNAVAILABILITY (Highest Priority):
-       - If a doctor has a date listed in 'unavailableDates', they CANNOT be assigned to ANY shift (M, A, or N) on that specific date.
-       - Do not simply skip the day; find another available doctor.
-
-    2. DAILY CONTINUITY (Afternoon & Night Pairing):
-       - On EVERY day (Weekday or Holiday):
-       - The doctor assigned to [General Afternoon] MUST be the same as [General Night].
-       - The doctor assigned to [ICU Afternoon] MUST be the same as [ICU Night].
-       - Logic: One doctor covers the long shift from 16:30 to 08:30 next day.
-
-    3. WARD SEPARATION:
-       - On EVERY day, the doctor on [General Afternoon/Night] MUST NOT be the same as the doctor on [ICU Afternoon/Night].
-
-    4. HOLIDAY & WEEKEND PATTERN (The "Cross-Over" Rule):
-       - On any "Holiday" (Sat, Sun, or Custom Holiday), you MUST assign exactly 2 doctors to cover all slots using this specific pattern:
-       - Doctor A (Role 1): Works [General Morning] AND THEN moves to [ICU Afternoon + ICU Night].
-       - Doctor B (Role 2): Works [ICU Morning] AND THEN moves to [General Afternoon + General Night].
-       - Constraint: Doctor A MUST NOT be Doctor B.
-
+    Rules (Strict):
+    1. UNAVAILABLE: If doc lists date in 'un', DO NOT assign.
+    2. CONTINUITY: Afternoon doc = Night doc (Same Ward).
+    3. WARD SEPARATION: Gen doc != ICU doc (Same Shift).
+    4. HOLIDAY PATTERN (Sat/Sun/Custom):
+       - Doc A: Gen Morning -> ICU Afternoon -> ICU Night.
+       - Doc B: ICU Morning -> Gen Afternoon -> Gen Night.
+       - Doc A != Doc B.
     5. WEEKDAY PATTERN:
-       - No Morning shifts exist on Weekdays. Set Morning slots to null.
-       - Assign Doctor A to [General Afternoon + General Night].
-       - Assign Doctor B to [ICU Afternoon + ICU Night].
+       - Morning: null.
+       - Doc A: Gen Afternoon -> Gen Night.
+       - Doc B: ICU Afternoon -> ICU Night.
+    6. FAIRNESS: Spread shifts. Avoid consecutive days.
 
-    6. RESTING (Fairness):
-       - Try to space out shifts. Ideally, if a doctor works today, they should rest for at least 2 days before the next shift.
-       - AVOID assigning a doctor on consecutive days unless availability is critically low.
-
-    7. FAIRNESS (Distribution):
-       - Distribute "Holiday" shifts as equally as possible among all doctors.
-
-    Output Format (JSON Array):
-    [
-      {
-        "date": "YYYY-MM-DD",
-        "isHoliday": boolean,
-        "shifts": {
-          "morning": { "icu": "uuid" | null, "general": "uuid" | null },
-          "afternoon": { "icu": "uuid", "general": "uuid" },
-          "night": { "icu": "uuid", "general": "uuid" }
-        }
-      },
-      ...
-    ]
+    Output JSON Array ONLY:
+    [{"date":"YYYY-MM-DD","isHoliday":bool,"shifts":{"morning":{"icu":"id"|null,"general":"id"|null},"afternoon":{"icu":"id","general":"id"},"night":{"icu":"id","general":"id"}}}]
   `;
 };
 
@@ -120,31 +85,39 @@ app.post('/api/generate-schedule', async (req, res) => {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const prompt = createPrompt(doctors, config);
   
-  // NOTE: Schema validation removed to improve speed and avoid Vercel timeouts (10s limit on free tier).
-  
-  try {
-    // Calling Gemini-2.5-Flash
-    console.log(`[${new Date().toISOString()}] Calling Gemini-2.5-Flash...`);
-    
+  // Strategy: Try 1.5 Flash (Fastest) -> Fallback to 2.5 Flash
+  const tryGenerate = async (modelName) => {
+    console.log(`[${new Date().toISOString()}] Calling ${modelName}...`);
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: modelName,
       contents: prompt,
       config: {
         responseMimeType: "application/json",
-        // responseSchema is removed intentionally for speed
+        // No schema validation for max speed
       }
     });
+    return JSON.parse(response.text);
+  };
 
-    const generatedSchedule = JSON.parse(response.text);
+  try {
+    let generatedSchedule;
+    try {
+        // Attempt 1: Gemini 1.5 Flash (Fastest for Vercel Free Tier)
+        generatedSchedule = await tryGenerate('gemini-1.5-flash');
+    } catch (e) {
+        console.warn("Gemini 1.5 Flash failed, falling back to 2.5 Flash...", e.message);
+        // Attempt 2: Gemini 2.5 Flash
+        generatedSchedule = await tryGenerate('gemini-2.5-flash');
+    }
     
     const endTime = Date.now();
     const duration = (endTime - startTime) / 1000;
-    console.log(`[${new Date().toISOString()}] Finished generating schedule in ${duration}s`);
+    console.log(`[${new Date().toISOString()}] Finished in ${duration}s`);
 
     res.json(generatedSchedule);
 
   } catch (error) {
-    console.error("Gemini AI Final Error:", error);
+    console.error("AI Generation Error:", error);
     res.status(500).json({ error: "Failed to generate schedule: " + error.message });
   }
 });
@@ -397,6 +370,10 @@ app.post('/api/config', async (req, res) => {
 // --- INITIALIZATION ---
 const initDb = async () => {
   try {
+    // Ensure Schema Exists
+    await pool.query('CREATE SCHEMA IF NOT EXISTS medischedule');
+
+    // Ensure Tables Exist (Only app_settings required for minimal init, others via SQL script ideally)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS app_settings (
         key VARCHAR(50) PRIMARY KEY,
