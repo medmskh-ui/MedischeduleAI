@@ -123,7 +123,21 @@ app.post('/api/doctors', async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    // Upsert Strategy
+    // 1. Sync Deletion: Remove doctors not present in the payload
+    const incomingIds = doctors.map(d => d.id);
+    
+    if (incomingIds.length > 0) {
+      // Delete those NOT in the incoming list (assuming ID is UUID)
+      await client.query(
+        'DELETE FROM doctors WHERE NOT (id = ANY($1::uuid[]))',
+        [incomingIds]
+      );
+    } else {
+      // If payload is empty, delete everyone
+      await client.query('DELETE FROM doctors');
+    }
+    
+    // 2. Upsert Strategy (Update existing or Insert new)
     for (const doc of doctors) {
       await client.query(`
         INSERT INTO doctors (id, name, phone, active, color, unavailable_dates)
@@ -137,9 +151,6 @@ app.post('/api/doctors', async (req, res) => {
       `, [doc.id, doc.name, doc.phone, doc.active, doc.color, JSON.stringify(doc.unavailableDates)]);
     }
 
-    // Optional: Handle deletion if doctor is removed from UI?
-    // For now, we only sync updates/adds. Deletion usually requires explicit endpoint or a different sync strategy.
-    
     await client.query('COMMIT');
     res.json({ success: true });
   } catch (err) {
