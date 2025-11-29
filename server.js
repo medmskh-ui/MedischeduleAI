@@ -1,3 +1,4 @@
+
 import express from 'express';
 import pg from 'pg';
 import cors from 'cors';
@@ -120,14 +121,13 @@ app.post('/api/generate-schedule', async (req, res) => {
   const prompt = createPrompt(doctors, config);
   
   // NOTE: Schema validation removed to improve speed and avoid Vercel timeouts (10s limit on free tier).
-  // gemini-1.5-flash is used for maximum speed.
-
+  
   try {
-    // Single fast call. No fallback logic to keep latency absolute minimum.
-    console.log(`[${new Date().toISOString()}] Calling Gemini-1.5-Flash (Fastest Mode)...`);
+    // Calling Gemini-2.5-Flash
+    console.log(`[${new Date().toISOString()}] Calling Gemini-2.5-Flash...`);
     
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
