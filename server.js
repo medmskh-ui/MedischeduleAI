@@ -113,54 +113,72 @@ app.post('/api/generate-schedule', async (req, res) => {
   console.log(`[${new Date().toISOString()}] Start generating schedule...`);
   const startTime = Date.now();
 
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    
-    // Using gemini-3-pro-preview as requested for higher quality
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: createPrompt(doctors, config),
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              date: { type: Type.STRING },
-              isHoliday: { type: Type.BOOLEAN },
-              shifts: {
-                type: Type.OBJECT,
-                properties: {
-                  morning: {
-                    type: Type.OBJECT,
-                    properties: {
-                      icu: { type: Type.STRING, nullable: true },
-                      general: { type: Type.STRING, nullable: true }
-                    },
-                    nullable: true
-                  },
-                  afternoon: {
-                    type: Type.OBJECT,
-                    properties: {
-                      icu: { type: Type.STRING },
-                      general: { type: Type.STRING }
-                    }
-                  },
-                  night: {
-                    type: Type.OBJECT,
-                    properties: {
-                      icu: { type: Type.STRING },
-                      general: { type: Type.STRING }
-                    }
-                  }
-                }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const prompt = createPrompt(doctors, config);
+  
+  const responseSchema = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        date: { type: Type.STRING },
+        isHoliday: { type: Type.BOOLEAN },
+        shifts: {
+          type: Type.OBJECT,
+          properties: {
+            morning: {
+              type: Type.OBJECT,
+              properties: {
+                icu: { type: Type.STRING, nullable: true },
+                general: { type: Type.STRING, nullable: true }
+              },
+              nullable: true
+            },
+            afternoon: {
+              type: Type.OBJECT,
+              properties: {
+                icu: { type: Type.STRING },
+                general: { type: Type.STRING }
+              }
+            },
+            night: {
+              type: Type.OBJECT,
+              properties: {
+                icu: { type: Type.STRING },
+                general: { type: Type.STRING }
               }
             }
           }
         }
       }
+    }
+  };
+
+  const generateWithModel = async (modelName) => {
+    console.log(`[${new Date().toISOString()}] Attempting generation with model: ${modelName}`);
+    return await ai.models.generateContent({
+      model: modelName,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: responseSchema
+      }
     });
+  };
+
+  try {
+    let response;
+    
+    // 1. Try Primary Model (Pro)
+    try {
+      response = await generateWithModel('gemini-3-pro-preview');
+    } catch (primaryError) {
+      console.warn(`[${new Date().toISOString()}] Primary model (Pro) failed: ${primaryError.message}`);
+      console.warn("Switching to fallback model (Flash)...");
+      
+      // 2. Fallback to Secondary Model (Flash)
+      response = await generateWithModel('gemini-2.5-flash');
+    }
 
     const generatedSchedule = JSON.parse(response.text);
     
@@ -171,8 +189,8 @@ app.post('/api/generate-schedule', async (req, res) => {
     res.json(generatedSchedule);
 
   } catch (error) {
-    console.error("Gemini AI Error:", error);
-    res.status(500).json({ error: "Failed to generate schedule: " + error.message });
+    console.error("Gemini AI Final Error:", error);
+    res.status(500).json({ error: "Failed to generate schedule (All models failed): " + error.message });
   }
 });
 
