@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Doctor, DailySchedule, ScheduleConfig, User } from './types';
 import DoctorManager from './components/DoctorManager';
@@ -9,10 +8,11 @@ import { generateScheduleWithGemini } from './services/geminiService';
 import { dataService } from './services/dataService';
 import { exportToPDF, exportToDocx } from './utils/exportUtils';
 import { getDaysInMonth, format } from 'date-fns';
-import { Sparkles, FileText, Activity, CalendarDays, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
+import { Sparkles, FileText, Activity, CalendarDays, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut, CheckCircle, Loader2 } from 'lucide-react';
 import th from 'date-fns/locale/th';
 
 type View = 'schedule' | 'doctors' | 'holidays';
+type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -27,15 +27,19 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   
+  // Saving State
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  
   // Track if initial data load is complete
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   
   // Track if schedule has been modified by user (to prevent auto-save on load)
   const scheduleDirtyRef = useRef(false);
+  // Ref for debounce timer
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 1. Load Data on Mount (Doctors & Config ONLY)
-  // We do NOT load schedule here anymore to avoid race conditions. 
-  // Schedule will be loaded by the "Month Change" effect.
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -57,28 +61,70 @@ const App: React.FC = () => {
   }, []);
 
   // 2. Auto-Save Effects
+
+  // Doctors - Save immediately on change (usually infrequent)
   useEffect(() => {
     if (isDataLoaded) {
       dataService.saveDoctors(doctors);
     }
   }, [doctors, isDataLoaded]);
 
-  // Only auto-save schedule if it has content AND has been modified by user
-  // This prevents overwriting the DB with empty/loaded data during month transitions
-  useEffect(() => {
-    if (isDataLoaded && schedule.length > 0 && scheduleDirtyRef.current) {
-      dataService.saveSchedule(schedule);
-    }
-  }, [schedule, isDataLoaded]);
-
+  // Config - Save immediately on change
   useEffect(() => {
     if (isDataLoaded) {
       dataService.saveConfig(config);
     }
   }, [config, isDataLoaded]);
 
+  // Helper function to save schedule to DB
+  const saveScheduleToDb = async (currentSchedule: DailySchedule[]) => {
+    setIsSaving(true);
+    setSaveStatus('saving');
+    try {
+      await dataService.saveSchedule(currentSchedule);
+      setSaveStatus('saved');
+      // Mark as clean ONLY if we successfully saved
+      // Note: In a race condition where user edits WHILE saving, 
+      // the dirty ref would be set to true again by the edit handler, 
+      // so we should be careful. But for the blocking navigation case, this is safe.
+      return true;
+    } catch (error) {
+      console.error("Save failed:", error);
+      setSaveStatus('error');
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Schedule Auto-Save with DEBOUNCE
+  useEffect(() => {
+    if (isDataLoaded && schedule.length > 0 && scheduleDirtyRef.current) {
+      setSaveStatus('unsaved');
+
+      // Clear any existing timer
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+
+      // Set a new timer to save after 1 second of inactivity
+      saveTimeoutRef.current = setTimeout(async () => {
+        const success = await saveScheduleToDb(schedule);
+        if (success) {
+           scheduleDirtyRef.current = false;
+        }
+      }, 1000);
+    }
+
+    // Cleanup function to clear timer if component unmounts or schedule changes again
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [schedule, isDataLoaded]);
+
   // 3. Handle Month/Year Change OR Config Change
-  // This logic is critical: It fetches existing data from DB and builds the view.
   useEffect(() => {
     if (!isDataLoaded) return;
     
@@ -87,7 +133,6 @@ const App: React.FC = () => {
     const syncScheduleWithDb = async () => {
       try {
         // Always fetch the latest full schedule from DB to ensure we don't lose data
-        // when switching months or reloading.
         const dbSchedule = await dataService.getSchedule();
         
         if (!isActive) return;
@@ -104,16 +149,13 @@ const App: React.FC = () => {
           const isHoliday = isWeekendDay || !!customHoliday;
 
           // Try to find this date in the fetched DB data
-          // Robust comparison: Handle potential time components in strings (though server fix should prevent it)
           const existingDay = dbSchedule.find(s => s.date.split('T')[0] === dateStr);
 
           if (existingDay) {
-            // If exists, use the shifts from DB but update holiday status (in case config changed)
             newMonthSchedule.push({
               ...existingDay,
               isHoliday: isHoliday,
               holidayName: customHoliday?.name,
-              // Ensure shifts object structure exists
               shifts: existingDay.shifts || {
                 morning: isHoliday ? { icu: null, general: null } : undefined,
                 afternoon: { icu: null, general: null },
@@ -121,7 +163,6 @@ const App: React.FC = () => {
               }
             });
           } else {
-            // If no data in DB, create a fresh empty slot
             newMonthSchedule.push({
               date: dateStr,
               isHoliday: isHoliday,
@@ -136,8 +177,8 @@ const App: React.FC = () => {
         }
         
         setSchedule(newMonthSchedule);
-        // Reset dirty flag because this is a load operation, not a user edit.
         scheduleDirtyRef.current = false;
+        setSaveStatus('saved');
         
       } catch (error) {
         console.error("Error syncing schedule:", error);
@@ -182,6 +223,7 @@ const App: React.FC = () => {
     }));
     
     scheduleDirtyRef.current = true;
+    setSaveStatus('unsaved');
   };
 
   const handleGenerate = async () => {
@@ -204,6 +246,7 @@ const App: React.FC = () => {
         };
       }));
       scheduleDirtyRef.current = true;
+      setSaveStatus('unsaved');
     } catch (error: any) {
       console.error(error);
       alert("เกิดข้อผิดพลาดในการสร้างตาราง: " + error.message);
@@ -236,7 +279,24 @@ const App: React.FC = () => {
     }
   };
 
-  const cycleMonth = (direction: 'prev' | 'next') => {
+  const cycleMonth = async (direction: 'prev' | 'next') => {
+    if (isSaving) return; // Prevent clicking while saving
+
+    // GUARD: If dirty, force save and WAIT before changing month
+    if (scheduleDirtyRef.current) {
+        // Cancel any pending debounced save
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        
+        // Block and Save
+        const success = await saveScheduleToDb(schedule);
+        if (success) {
+            scheduleDirtyRef.current = false;
+        } else {
+            alert("กำลังบันทึกข้อมูล กรุณารอสักครู่แล้วลองใหม่");
+            return;
+        }
+    }
+
     let newMonth = config.month + (direction === 'next' ? 1 : -1);
     let newYear = config.year;
 
@@ -337,11 +397,48 @@ const App: React.FC = () => {
             {/* Toolbar */}
             <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
               <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
-                 <button onClick={() => cycleMonth('prev')} className="p-2 hover:bg-gray-100 rounded-full text-gray-500"><ChevronLeft size={20}/></button>
-                 <h2 className="text-lg font-bold text-gray-800">
-                    ตารางเวรแพทย์อายุรกรรม {monthName} {buddhistYear}
-                 </h2>
-                 <button onClick={() => cycleMonth('next')} className="p-2 hover:bg-gray-100 rounded-full text-gray-500"><ChevronRight size={20}/></button>
+                 <button 
+                   onClick={() => cycleMonth('prev')} 
+                   disabled={isSaving}
+                   className="p-2 hover:bg-gray-100 rounded-full text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                 >
+                   <ChevronLeft size={20}/>
+                 </button>
+                 
+                 <div className="flex flex-col items-center">
+                    <h2 className="text-lg font-bold text-gray-800">
+                        ตารางเวรแพทย์อายุรกรรม {monthName} {buddhistYear}
+                    </h2>
+                    {/* Status Indicator */}
+                    <div className="flex items-center gap-1.5 h-4">
+                       {saveStatus === 'saving' && (
+                         <>
+                           <Loader2 size={10} className="text-orange-500 animate-spin" />
+                           <span className="text-[10px] text-orange-500 font-medium">กำลังบันทึก...</span>
+                         </>
+                       )}
+                       {saveStatus === 'saved' && (
+                         <>
+                           <CheckCircle size={10} className="text-green-500" />
+                           <span className="text-[10px] text-green-500 font-medium">บันทึกแล้ว</span>
+                         </>
+                       )}
+                       {saveStatus === 'unsaved' && (
+                           <span className="text-[10px] text-gray-400 font-medium">รอการบันทึก...</span>
+                       )}
+                       {saveStatus === 'error' && (
+                           <span className="text-[10px] text-red-500 font-medium">บันทึกล้มเหลว</span>
+                       )}
+                    </div>
+                 </div>
+
+                 <button 
+                   onClick={() => cycleMonth('next')} 
+                   disabled={isSaving}
+                   className="p-2 hover:bg-gray-100 rounded-full text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                 >
+                   <ChevronRight size={20}/>
+                 </button>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-center md:justify-end">
@@ -349,7 +446,7 @@ const App: React.FC = () => {
                   <>
                     <button
                       onClick={handleGenerate}
-                      disabled={isGenerating}
+                      disabled={isGenerating || isSaving}
                       className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-medical-600 to-medical-500 text-white rounded-lg hover:from-medical-700 hover:to-medical-600 transition shadow-sm disabled:opacity-70 text-sm font-semibold"
                     >
                       <Sparkles size={16} className={isGenerating ? "animate-spin" : ""} />
