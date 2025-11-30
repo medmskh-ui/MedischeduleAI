@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Doctor, ScheduleConfig } from '../types';
-import { Plus, Trash2, User, Phone, Search, UserPlus, CalendarX, X, Power } from 'lucide-react';
+import { Plus, Trash2, User, Phone, Search, UserPlus, CalendarX, X, Power, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format, getDaysInMonth } from 'date-fns';
 import th from 'date-fns/locale/th';
 
@@ -50,6 +50,12 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
   const [newPhone, setNewPhone] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDocForLeave, setSelectedDocForLeave] = useState<Doctor | null>(null);
+  
+  // State for Modal Calendar View
+  const [modalConfig, setModalConfig] = useState<{year: number, month: number}>({ 
+    year: config.year, 
+    month: config.month 
+  });
 
   const addDoctor = (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,6 +89,26 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
     ));
   };
 
+  const openLeaveModal = (doc: Doctor) => {
+    setSelectedDocForLeave(doc);
+    // Initialize modal with current global config or current month
+    setModalConfig({ year: config.year, month: config.month });
+  };
+
+  const changeModalMonth = (increment: number) => {
+    let newMonth = modalConfig.month + increment;
+    let newYear = modalConfig.year;
+
+    if (newMonth > 11) {
+      newMonth = 0;
+      newYear++;
+    } else if (newMonth < 0) {
+      newMonth = 11;
+      newYear--;
+    }
+    setModalConfig({ month: newMonth, year: newYear });
+  };
+
   const toggleUnavailableDate = (doctor: Doctor, dateStr: string) => {
     const isUnavailable = doctor.unavailableDates.includes(dateStr);
     let newDates;
@@ -105,9 +131,9 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
     d.phone.includes(searchTerm)
   );
 
-  // Calendar generation for modal
-  const daysInMonth = getDaysInMonth(new Date(config.year, config.month));
-  const firstDayOfMonth = new Date(config.year, config.month, 1).getDay();
+  // Calendar generation for modal (Dynamic based on modalConfig)
+  const daysInMonth = getDaysInMonth(new Date(modalConfig.year, modalConfig.month));
+  const firstDayOfMonth = new Date(modalConfig.year, modalConfig.month, 1).getDay();
   const emptySlots = Array.from({ length: firstDayOfMonth }, (_, i) => i);
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
@@ -228,7 +254,7 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
                       <td className="p-4 text-center">
                         {/* AVAILABLE FOR EVERYONE TO EDIT LEAVE */}
                         <button
-                          onClick={() => setSelectedDocForLeave(doc)}
+                          onClick={() => openLeaveModal(doc)}
                           disabled={!doc.active}
                           className={`
                             inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition
@@ -290,12 +316,25 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
             </div>
             
             <div className="p-6">
-              <div className="text-center mb-4">
-                <span className="text-lg font-semibold text-gray-700">
-                  {format(new Date(config.year, config.month), 'MMMM yyyy', { locale: th })}
-                </span>
-                <p className="text-sm text-gray-500">คลิกที่วันที่ต้องการระบุว่าไม่ว่าง</p>
+              <div className="flex items-center justify-center gap-4 mb-4">
+                 <button 
+                    onClick={() => changeModalMonth(-1)}
+                    className="p-1 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                 >
+                    <ChevronLeft size={24} />
+                 </button>
+                 <span className="text-lg font-semibold text-gray-700 min-w-[150px] text-center">
+                    {format(new Date(modalConfig.year, modalConfig.month), 'MMMM yyyy', { locale: th })}
+                 </span>
+                 <button 
+                    onClick={() => changeModalMonth(1)}
+                    className="p-1 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                 >
+                    <ChevronRight size={24} />
+                 </button>
               </div>
+              
+              <p className="text-center text-sm text-gray-500 mb-4">คลิกที่วันที่ต้องการระบุว่าไม่ว่าง</p>
 
               <div className="grid grid-cols-7 gap-2 mb-2">
                 {['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].map((d, i) => (
@@ -306,7 +345,7 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
               <div className="grid grid-cols-7 gap-2">
                 {emptySlots.map(s => <div key={`empty-${s}`} className="aspect-square"></div>)}
                 {daysArray.map(day => {
-                   const date = new Date(config.year, config.month, day);
+                   const date = new Date(modalConfig.year, modalConfig.month, day);
                    const dateStr = format(date, 'yyyy-MM-dd');
                    const isUnavailable = selectedDocForLeave.unavailableDates?.includes(dateStr);
                    
@@ -332,7 +371,7 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
                   onClick={() => setSelectedDocForLeave(null)}
                   className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition text-sm font-medium"
                 >
-                  บันทึกและปิด
+                  ปิดหน้าต่าง
                 </button>
               </div>
             </div>
