@@ -153,9 +153,11 @@ app.post('/api/doctors', async (req, res) => {
 // 3. Schedule
 app.get('/api/schedules', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM daily_schedules ORDER BY date ASC');
+    // FORCE Date to string using to_char to avoid timezone shifts and object type issues
+    const result = await pool.query("SELECT to_char(date, 'YYYY-MM-DD') as date_str, is_holiday, holiday_name, shifts FROM daily_schedules ORDER BY date ASC");
+    
     const schedule = result.rows.map(s => ({
-      date: s.date, // Date string YYYY-MM-DD
+      date: s.date_str, // Use the string directly from DB
       isHoliday: s.is_holiday,
       holidayName: s.holiday_name,
       shifts: s.shifts

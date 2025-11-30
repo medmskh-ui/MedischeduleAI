@@ -85,7 +85,8 @@ export const dataService = {
   // --- SCHEDULE ---
   getSchedule: async (): Promise<DailySchedule[]> => {
     try {
-        const res = await fetch(`${API_BASE}/schedules`);
+        // Add cache busting query param
+        const res = await fetch(`${API_BASE}/schedules?_t=${Date.now()}`);
         return await handleResponse(res);
     } catch (e) {
         console.warn("API unavailable, using localStorage for Schedule");

@@ -96,7 +96,8 @@ const App: React.FC = () => {
           const isHoliday = isWeekendDay || !!customHoliday;
 
           // Try to find this date in the fetched DB data
-          const existingDay = dbSchedule.find(s => s.date === dateStr);
+          // Robust comparison: Handle potential time components in strings (though server fix should prevent it)
+          const existingDay = dbSchedule.find(s => s.date.split('T')[0] === dateStr);
 
           if (existingDay) {
             // If exists, use the shifts from DB but update holiday status (in case config changed)
