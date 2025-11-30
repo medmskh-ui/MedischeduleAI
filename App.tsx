@@ -29,6 +29,9 @@ const App: React.FC = () => {
   
   // Track if initial data load is complete
   const [isDataLoaded, setIsDataLoaded] = useState(false);
+  
+  // Track if schedule has been modified by user (to prevent auto-save on load)
+  const scheduleDirtyRef = useRef(false);
 
   // 1. Load Data on Mount (Doctors & Config ONLY)
   // We do NOT load schedule here anymore to avoid race conditions. 
@@ -60,9 +63,10 @@ const App: React.FC = () => {
     }
   }, [doctors, isDataLoaded]);
 
-  // Only auto-save schedule if it has content to prevent overwriting with empty array during transitions
+  // Only auto-save schedule if it has content AND has been modified by user
+  // This prevents overwriting the DB with empty/loaded data during month transitions
   useEffect(() => {
-    if (isDataLoaded && schedule.length > 0) {
+    if (isDataLoaded && schedule.length > 0 && scheduleDirtyRef.current) {
       dataService.saveSchedule(schedule);
     }
   }, [schedule, isDataLoaded]);
@@ -78,11 +82,15 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isDataLoaded) return;
     
+    let isActive = true;
+
     const syncScheduleWithDb = async () => {
       try {
         // Always fetch the latest full schedule from DB to ensure we don't lose data
         // when switching months or reloading.
         const dbSchedule = await dataService.getSchedule();
+        
+        if (!isActive) return;
 
         const daysInMonth = getDaysInMonth(new Date(config.year, config.month));
         const newMonthSchedule: DailySchedule[] = [];
@@ -128,12 +136,17 @@ const App: React.FC = () => {
         }
         
         setSchedule(newMonthSchedule);
+        // Reset dirty flag because this is a load operation, not a user edit.
+        scheduleDirtyRef.current = false;
+        
       } catch (error) {
         console.error("Error syncing schedule:", error);
       }
     };
 
     syncScheduleWithDb();
+    
+    return () => { isActive = false; };
 
   }, [config.year, config.month, config.customHolidays, isDataLoaded]);
 
@@ -167,6 +180,8 @@ const App: React.FC = () => {
       }
       return day;
     }));
+    
+    scheduleDirtyRef.current = true;
   };
 
   const handleGenerate = async () => {
@@ -188,6 +203,7 @@ const App: React.FC = () => {
           shifts: genDay.shifts
         };
       }));
+      scheduleDirtyRef.current = true;
     } catch (error: any) {
       console.error(error);
       alert("เกิดข้อผิดพลาดในการสร้างตาราง: " + error.message);
