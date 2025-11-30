@@ -85,7 +85,6 @@ app.post('/api/generate-schedule', async (req, res) => {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const prompt = createPrompt(doctors, config);
   
-  // Strategy: Try 1.5 Flash (Fastest) -> Fallback to 2.5 Flash
   const tryGenerate = async (modelName) => {
     console.log(`[${new Date().toISOString()}] Calling ${modelName}...`);
     const response = await ai.models.generateContent({
@@ -102,12 +101,12 @@ app.post('/api/generate-schedule', async (req, res) => {
   try {
     let generatedSchedule;
     try {
-        // Attempt 1: Gemini 1.5 Flash (Fastest for Vercel Free Tier)
-        generatedSchedule = await tryGenerate('gemini-1.5-flash');
-    } catch (e) {
-        console.warn("Gemini 1.5 Flash failed, falling back to 2.5 Flash...", e.message);
-        // Attempt 2: Gemini 2.5 Flash
+        // Attempt: Gemini 2.5 Flash
         generatedSchedule = await tryGenerate('gemini-2.5-flash');
+    } catch (e) {
+        console.warn("Gemini 2.5 Flash failed, retrying...", e.message);
+        // Retry logic or alternative model could go here
+        throw e;
     }
     
     const endTime = Date.now();
