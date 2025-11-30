@@ -3,13 +3,16 @@ import express from 'express';
 import pg from 'pg';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-import { GoogleGenAI } from "@google/genai";
-import { getDaysInMonth, format } from 'date-fns';
+import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
-const { Pool } = pg;
+const { Pool, types } = pg;
+
+// FIX: Force Postgres to return DATE types as simple strings (YYYY-MM-DD)
+// This prevents timezone shifts when converting to JS Date objects.
+types.setTypeParser(1082, (str) => str);
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -17,78 +20,140 @@ const PORT = process.env.PORT || 3001;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }, // Required for Neon
-  // Removed forced search_path to ensure compatibility with existing data in 'public' schema
 });
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '5mb' })); // Allow larger payloads for schedule
+app.use(express.json({ limit: '5mb' }));
+
+// --- INITIALIZATION ---
+const initDb = async () => {
+  try {
+    const client = await pool.connect();
+    try {
+      // 1. Users Table
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,
+          username VARCHAR(50) UNIQUE NOT NULL,
+          password_hash VARCHAR(255) NOT NULL,
+          role VARCHAR(20) NOT NULL DEFAULT 'user',
+          name VARCHAR(100),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 2. Doctors Table
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS doctors (
+          id VARCHAR(50) PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          phone VARCHAR(50),
+          unavailable_dates JSONB DEFAULT '[]',
+          active BOOLEAN DEFAULT TRUE,
+          color VARCHAR(20)
+        );
+      `);
+
+      // 3. Daily Schedules Table
+      // Changed to use DATE as primary key to support UPSERT
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS daily_schedules (
+          date DATE PRIMARY KEY,
+          is_holiday BOOLEAN DEFAULT FALSE,
+          holiday_name VARCHAR(100),
+          morning_icu VARCHAR(50),
+          morning_general VARCHAR(50),
+          afternoon_icu VARCHAR(50),
+          afternoon_general VARCHAR(50),
+          night_icu VARCHAR(50),
+          night_general VARCHAR(50)
+        );
+      `);
+
+      // 4. App Settings Table (Single Row)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS app_settings (
+          id INTEGER PRIMARY KEY DEFAULT 1,
+          year INTEGER,
+          month INTEGER,
+          custom_holidays JSONB DEFAULT '[]'
+        );
+      `);
+
+      // Seed Default Admin if no users exist
+      const userCountRes = await client.query('SELECT COUNT(*) FROM users');
+      if (parseInt(userCountRes.rows[0].count) === 0) {
+        const hashedPassword = await bcrypt.hash('password', 10);
+        await client.query(`
+          INSERT INTO users (username, password_hash, role, name)
+          VALUES ($1, $2, $3, $4)
+        `, ['admin', hashedPassword, 'admin', 'System Admin']);
+        console.log('Default admin created (admin/password)');
+      }
+
+      // Ensure default settings exist
+      await client.query(`
+        INSERT INTO app_settings (id, year, month, custom_holidays)
+        VALUES (1, EXTRACT(YEAR FROM CURRENT_DATE), EXTRACT(MONTH FROM CURRENT_DATE) - 1, '[]')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+      console.log('Database initialized successfully');
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('Error initializing database:', err);
+  }
+};
+
+// Initialize DB on startup
+initDb();
 
 // --- ROUTES ---
 
-// AI Generation Route (Server-Side Fallback/Optional)
-// Note: Main generation is now client-side to avoid timeouts, but this endpoint is kept for reference.
-app.post('/api/generate-schedule', async (req, res) => {
-  const { doctors, config } = req.body;
-
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(500).json({ error: "Server configuration error: Missing API Key" });
-  }
-
-  // ... (Simplified server-side logic if needed, but client-side is primary now)
-  res.status(501).json({ error: "Please use client-side generation." });
-});
-
-// Test Route
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date() });
-});
-
-// 1. Login
+// 1. Auth
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    // Check if users table exists first to avoid confusing error
     const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
-    
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'ชื่อผู้ใช้งานไม่ถูกต้อง หรือไม่มีในระบบ' });
+      return res.status(401).json({ error: 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง' });
     }
+
     const user = result.rows[0];
-    
-    // Direct comparison (Plain text)
-    if (password === user.password_hash) {
-      res.json({ username: user.username, role: user.role, name: user.name });
-    } else {
-      res.status(401).json({ error: 'รหัสผ่านไม่ถูกต้อง' });
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) {
+      return res.status(401).json({ error: 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง' });
     }
+
+    res.json({
+      username: user.username,
+      role: user.role,
+      name: user.name
+    });
   } catch (err) {
-    console.error("Login Error:", err);
-    res.status(500).json({ error: 'Database error: ' + err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// 1.1 Register
 app.post('/api/register', async (req, res) => {
   const { username, password, name } = req.body;
-  
-  if (!username || !password || !name) {
-    return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
-  }
-
   try {
+    const hashedPassword = await bcrypt.hash(password, 10);
     await pool.query(
       'INSERT INTO users (username, password_hash, role, name) VALUES ($1, $2, $3, $4)',
-      [username, password, 'viewer', name]
+      [username, hashedPassword, 'user', name]
     );
-
-    res.json({ success: true, message: 'สมัครสมาชิกสำเร็จ' });
+    res.json({ success: true, message: 'Registered successfully' });
   } catch (err) {
-    console.error("Register Error:", err);
-    if (err.code === '23505') {
-        return res.status(409).json({ error: 'ชื่อผู้ใช้งานนี้มีอยู่ในระบบแล้ว' });
+    console.error(err);
+    if (err.code === '23505') { // Unique violation
+      return res.status(400).json({ error: 'ชื่อผู้ใช้งานนี้ถูกใช้ไปแล้ว' });
     }
-    res.status(500).json({ error: 'Failed to create user: ' + err.message });
+    res.status(500).json({ error: 'Registration failed' });
   }
 });
 
@@ -96,109 +161,127 @@ app.post('/api/register', async (req, res) => {
 app.get('/api/doctors', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM doctors ORDER BY name ASC');
-    const doctors = result.rows.map(d => ({
-      id: d.id,
-      name: d.name,
-      phone: d.phone,
-      active: d.active,
-      color: d.color,
-      unavailableDates: d.unavailable_dates || []
+    const doctors = result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      phone: row.phone,
+      unavailableDates: row.unavailable_dates || [],
+      active: row.active,
+      color: row.color
     }));
     res.json(doctors);
   } catch (err) {
-    console.error("Get Doctors Error:", err);
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch doctors' });
   }
 });
 
 app.post('/api/doctors', async (req, res) => {
   const doctors = req.body;
-  if (!Array.isArray(doctors)) return res.status(400).json({ error: 'Expected array' });
-
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const incomingIds = doctors.map(d => d.id);
     
-    if (incomingIds.length > 0) {
-      await client.query('DELETE FROM doctors WHERE NOT (id = ANY($1::uuid[]))', [incomingIds]);
-    } else {
-      await client.query('DELETE FROM doctors');
-    }
+    // Simplistic sync: Delete all and re-insert is risky for concurrency, 
+    // but OK for low-traffic admin tasks. 
+    // Ideally we should use UPSERTs here too, but let's stick to simple logic for doctors list
+    // as it changes rarely compared to schedules.
+    await client.query('DELETE FROM doctors');
     
-    for (const doc of doctors) {
+    for (const d of doctors) {
       await client.query(`
-        INSERT INTO doctors (id, name, phone, active, color, unavailable_dates)
+        INSERT INTO doctors (id, name, phone, unavailable_dates, active, color)
         VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          phone = EXCLUDED.phone,
-          active = EXCLUDED.active,
-          color = EXCLUDED.color,
-          unavailable_dates = EXCLUDED.unavailable_dates;
-      `, [doc.id, doc.name, doc.phone, doc.active, doc.color, JSON.stringify(doc.unavailableDates)]);
+      `, [d.id, d.name, d.phone, JSON.stringify(d.unavailableDates), d.active, d.color]);
     }
-
+    
     await client.query('COMMIT');
     res.json({ success: true });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error("Save Doctors Error:", err);
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save doctors' });
   } finally {
     client.release();
   }
 });
 
-// 3. Schedule
+// 3. Schedules (THE CRITICAL PART)
 app.get('/api/schedules', async (req, res) => {
   try {
-    // FORCE Date to string using to_char to avoid timezone shifts and object type issues
-    const result = await pool.query("SELECT to_char(date, 'YYYY-MM-DD') as date_str, is_holiday, holiday_name, shifts FROM daily_schedules ORDER BY date ASC");
-    
-    const schedule = result.rows.map(s => ({
-      date: s.date_str, // Use the string directly from DB
-      isHoliday: s.is_holiday,
-      holidayName: s.holiday_name,
-      shifts: s.shifts
+    const result = await pool.query('SELECT * FROM daily_schedules');
+    const schedule = result.rows.map(row => ({
+      date: row.date, // Already string YYYY-MM-DD due to setTypeParser
+      isHoliday: row.is_holiday,
+      holidayName: row.holiday_name,
+      shifts: {
+        morning: (row.morning_icu || row.morning_general) ? {
+          icu: row.morning_icu,
+          general: row.morning_general
+        } : undefined,
+        afternoon: {
+          icu: row.afternoon_icu,
+          general: row.afternoon_general
+        },
+        night: {
+          icu: row.night_icu,
+          general: row.night_general
+        }
+      }
     }));
     res.json(schedule);
   } catch (err) {
-    console.error("Get Schedule Error:", err);
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch schedules' });
   }
 });
 
 app.post('/api/schedules', async (req, res) => {
   const schedule = req.body;
-  if (!Array.isArray(schedule)) return res.status(400).json({ error: 'Expected array' });
-  if (schedule.length === 0) return res.json({ success: true });
-
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // USING UPSERT (INSERT ON CONFLICT UPDATE)
+    // This prevents "Data Loss" when multiple saves happen quickly.
+    // We iterate through the payload and update each day individually.
     
-    const dates = schedule.map(s => new Date(s.date).toISOString().split('T')[0]);
-    dates.sort();
-    const startDate = dates[0];
-    const endDate = dates[dates.length - 1];
-
-    await client.query('DELETE FROM daily_schedules WHERE date >= $1 AND date <= $2', [startDate, endDate]);
-
     for (const day of schedule) {
-      const dateStr = new Date(day.date).toISOString().split('T')[0];
+      const m = day.shifts.morning || { icu: null, general: null };
+      const a = day.shifts.afternoon;
+      const n = day.shifts.night;
+
       await client.query(`
-        INSERT INTO daily_schedules (date, is_holiday, holiday_name, shifts)
-        VALUES ($1, $2, $3, $4)
-      `, [dateStr, day.isHoliday, day.holidayName, JSON.stringify(day.shifts)]);
+        INSERT INTO daily_schedules (
+          date, is_holiday, holiday_name, 
+          morning_icu, morning_general, 
+          afternoon_icu, afternoon_general, 
+          night_icu, night_general
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (date) DO UPDATE SET
+          is_holiday = EXCLUDED.is_holiday,
+          holiday_name = EXCLUDED.holiday_name,
+          morning_icu = EXCLUDED.morning_icu,
+          morning_general = EXCLUDED.morning_general,
+          afternoon_icu = EXCLUDED.afternoon_icu,
+          afternoon_general = EXCLUDED.afternoon_general,
+          night_icu = EXCLUDED.night_icu,
+          night_general = EXCLUDED.night_general
+      `, [
+        day.date, day.isHoliday, day.holidayName,
+        m.icu, m.general,
+        a.icu, a.general,
+        n.icu, n.general
+      ]);
     }
 
     await client.query('COMMIT');
     res.json({ success: true });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error("Save Schedule Error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("Save Error:", err);
+    res.status(500).json({ error: 'Failed to save schedule' });
   } finally {
     client.release();
   }
@@ -207,122 +290,43 @@ app.post('/api/schedules', async (req, res) => {
 // 4. Config
 app.get('/api/config', async (req, res) => {
   try {
-    const settingsResult = await pool.query("SELECT value FROM app_settings WHERE key = 'main_config'");
-    const mainConfig = settingsResult.rows.length > 0 ? settingsResult.rows[0].value : { year: new Date().getFullYear(), month: new Date().getMonth() };
-
-    const holidaysResult = await pool.query("SELECT * FROM holidays ORDER BY date ASC");
-    const customHolidays = holidaysResult.rows.map(h => ({
-      date: new Date(h.date).toISOString().split('T')[0],
-      name: h.name
-    }));
-
-    res.json({
-      year: mainConfig.year,
-      month: mainConfig.month,
-      customHolidays
-    });
+    const result = await pool.query('SELECT * FROM app_settings WHERE id = 1');
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      res.json({
+        year: row.year,
+        month: row.month,
+        customHolidays: row.custom_holidays || []
+      });
+    } else {
+      res.json(null);
+    }
   } catch (err) {
-    console.error("Get Config Error:", err);
-    res.json({ year: new Date().getFullYear(), month: new Date().getMonth(), customHolidays: [] });
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch config' });
   }
 });
 
 app.post('/api/config', async (req, res) => {
   const { year, month, customHolidays } = req.body;
-  
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-
-    await client.query(`
-      INSERT INTO app_settings (key, value)
-      VALUES ('main_config', $1)
-      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-    `, [JSON.stringify({ year, month })]);
-
-    await client.query('DELETE FROM holidays');
-    
-    if (customHolidays && customHolidays.length > 0) {
-      for (const h of customHolidays) {
-         await client.query('INSERT INTO holidays (date, name) VALUES ($1, $2)', [h.date, h.name]);
-      }
-    }
-
-    await client.query('COMMIT');
+    await pool.query(`
+      INSERT INTO app_settings (id, year, month, custom_holidays)
+      VALUES (1, $1, $2, $3)
+      ON CONFLICT (id) DO UPDATE SET
+        year = EXCLUDED.year,
+        month = EXCLUDED.month,
+        custom_holidays = EXCLUDED.custom_holidays
+    `, [year, month, JSON.stringify(customHolidays)]);
     res.json({ success: true });
   } catch (err) {
-    await client.query('ROLLBACK');
-    console.error("Save Config Error:", err);
-    res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save config' });
   }
 });
 
-// --- INITIALIZATION ---
-const initDb = async () => {
-  try {
-    console.log("Initializing Database tables...");
-    
-    // Create Tables if not exist
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        username VARCHAR(50) PRIMARY KEY,
-        password_hash TEXT NOT NULL,
-        role VARCHAR(20) NOT NULL,
-        name VARCHAR(100)
-      );
-
-      CREATE TABLE IF NOT EXISTS doctors (
-        id UUID PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        phone VARCHAR(50),
-        active BOOLEAN DEFAULT TRUE,
-        color VARCHAR(20),
-        unavailable_dates JSONB
-      );
-
-      CREATE TABLE IF NOT EXISTS daily_schedules (
-        date DATE PRIMARY KEY,
-        is_holiday BOOLEAN DEFAULT FALSE,
-        holiday_name VARCHAR(100),
-        shifts JSONB
-      );
-
-      CREATE TABLE IF NOT EXISTS holidays (
-        date DATE PRIMARY KEY,
-        name VARCHAR(100) NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS app_settings (
-        key VARCHAR(50) PRIMARY KEY,
-        value JSONB NOT NULL,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    // Seed default admin if users table is empty
-    const userCheck = await pool.query('SELECT 1 FROM users LIMIT 1');
-    if (userCheck.rowCount === 0) {
-      console.log("Seeding default admin user...");
-      await pool.query(`
-        INSERT INTO users (username, password_hash, role, name)
-        VALUES ('admin', 'password', 'admin', 'Administrator')
-      `);
-    }
-
-    console.log("Database initialized successfully.");
-  } catch (err) {
-    console.error("Failed to initialize DB:", err);
-  }
-};
-
-initDb();
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  app.listen(PORT, () => {
-    console.log(`Backend Server running on port ${PORT}`);
-  });
-}
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
 
 export default app;

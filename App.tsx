@@ -9,10 +9,11 @@ import { generateScheduleWithGemini } from './services/geminiService';
 import { dataService } from './services/dataService';
 import { exportToPDF, exportToDocx } from './utils/exportUtils';
 import { getDaysInMonth, format } from 'date-fns';
-import { Sparkles, FileText, Activity, CalendarDays, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
+import { Sparkles, FileText, Activity, CalendarDays, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut, CheckCircle, Save } from 'lucide-react';
 import th from 'date-fns/locale/th';
 
 type View = 'schedule' | 'doctors' | 'holidays';
+type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -26,13 +27,12 @@ const App: React.FC = () => {
   const [schedule, setSchedule] = useState<DailySchedule[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   
   // Track if initial data load is complete
   const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  // 1. Load Data on Mount (Doctors & Config ONLY)
-  // We do NOT load schedule here anymore to avoid race conditions. 
-  // Schedule will be loaded by the "Month Change" effect.
+  // 1. Load Data on Mount
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -47,25 +47,18 @@ const App: React.FC = () => {
         setIsDataLoaded(true);
       } catch (error) {
         console.error("Failed to load initial data:", error);
-        setIsDataLoaded(true); // Proceed anyway
+        setIsDataLoaded(true);
       }
     };
     loadData();
   }, []);
 
-  // 2. Auto-Save Effects
+  // 2. Auto-Save Effects (Doctors & Config)
   useEffect(() => {
     if (isDataLoaded) {
       dataService.saveDoctors(doctors);
     }
   }, [doctors, isDataLoaded]);
-
-  // Only auto-save schedule if it has content to prevent overwriting with empty array during transitions
-  useEffect(() => {
-    if (isDataLoaded && schedule.length > 0) {
-      dataService.saveSchedule(schedule);
-    }
-  }, [schedule, isDataLoaded]);
 
   useEffect(() => {
     if (isDataLoaded) {
@@ -73,15 +66,34 @@ const App: React.FC = () => {
     }
   }, [config, isDataLoaded]);
 
-  // 3. Handle Month/Year Change OR Config Change
-  // This logic is critical: It fetches existing data from DB and builds the view.
+  // 3. DEBOUNCED SCHEDULE SAVE
+  // This is the key fix for "Race Conditions".
+  // When user makes changes, we wait 1.5s before sending to server.
+  useEffect(() => {
+    if (!isDataLoaded || schedule.length === 0) return;
+
+    setSaveStatus('saving');
+    
+    const timeoutId = setTimeout(async () => {
+      try {
+        await dataService.saveSchedule(schedule);
+        setSaveStatus('saved');
+      } catch (err) {
+        console.error("Auto-save failed:", err);
+        setSaveStatus('error');
+      }
+    }, 1500); // Wait 1.5 seconds after last change
+
+    return () => clearTimeout(timeoutId);
+  }, [schedule, isDataLoaded]);
+
+  // 4. Handle Month/Year Change Logic
   useEffect(() => {
     if (!isDataLoaded) return;
     
     const syncScheduleWithDb = async () => {
       try {
-        // Always fetch the latest full schedule from DB to ensure we don't lose data
-        // when switching months or reloading.
+        // Fetch fresh data from DB
         const dbSchedule = await dataService.getSchedule();
 
         const daysInMonth = getDaysInMonth(new Date(config.year, config.month));
@@ -95,17 +107,15 @@ const App: React.FC = () => {
           const customHoliday = config.customHolidays.find(h => h.date === dateStr);
           const isHoliday = isWeekendDay || !!customHoliday;
 
-          // Try to find this date in the fetched DB data
-          // Robust comparison: Handle potential time components in strings (though server fix should prevent it)
-          const existingDay = dbSchedule.find(s => s.date.split('T')[0] === dateStr);
+          // Find existing data for this date
+          // Date string matching is now robust thanks to server-side fixes
+          const existingDay = dbSchedule.find(s => s.date === dateStr);
 
           if (existingDay) {
-            // If exists, use the shifts from DB but update holiday status (in case config changed)
             newMonthSchedule.push({
               ...existingDay,
-              isHoliday: isHoliday,
+              isHoliday: isHoliday, // Update holiday status dynamically based on config
               holidayName: customHoliday?.name,
-              // Ensure shifts object structure exists
               shifts: existingDay.shifts || {
                 morning: isHoliday ? { icu: null, general: null } : undefined,
                 afternoon: { icu: null, general: null },
@@ -113,7 +123,7 @@ const App: React.FC = () => {
               }
             });
           } else {
-            // If no data in DB, create a fresh empty slot
+            // New day slot
             newMonthSchedule.push({
               date: dateStr,
               isHoliday: isHoliday,
@@ -140,6 +150,7 @@ const App: React.FC = () => {
   const updateSchedule = (date: string, shift: 'morning' | 'afternoon' | 'night', type: 'icu' | 'general', doctorId: string) => {
     if (user?.role !== 'admin') return;
 
+    // Optimistic UI Update
     setSchedule(prev => prev.map(day => {
       if (day.date === date) {
         const newShifts = { ...day.shifts };
@@ -147,6 +158,9 @@ const App: React.FC = () => {
         if (shift === 'morning' && newShifts.morning) {
           newShifts.morning = { ...newShifts.morning, [type]: doctorId };
           
+          // Cross-covering logic (Auto-fill other shifts if needed)
+          // Removed auto-fill logic to give users more control, OR keep if required.
+          // Keeping basic auto-fill logic from original requirements:
           if (type === 'general') {
              newShifts.afternoon = { ...newShifts.afternoon, icu: doctorId };
              newShifts.night = { ...newShifts.night, icu: doctorId };
@@ -329,6 +343,13 @@ const App: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-center md:justify-end">
+                {/* Save Status Indicator */}
+                <div className="mr-2 flex items-center text-xs font-medium">
+                  {saveStatus === 'saving' && <span className="text-medical-600 flex items-center gap-1"><Save size={14} className="animate-bounce" /> กำลังบันทึก...</span>}
+                  {saveStatus === 'saved' && <span className="text-gray-400 flex items-center gap-1"><CheckCircle size={14} /> บันทึกแล้ว</span>}
+                  {saveStatus === 'error' && <span className="text-red-500">บันทึกไม่สำเร็จ</span>}
+                </div>
+
                 {isAdmin && (
                   <>
                     <button
