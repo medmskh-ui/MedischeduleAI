@@ -32,7 +32,7 @@ export const generateScheduleWithGemini = async (
   const monthName = format(new Date(config.year, config.month), 'MMMM yyyy');
   const activeDoctors = doctors.filter(d => d.active);
 
-  // Minified Prompt Strategy to reduce token generation time
+  // Updated Prompt based on User Requirements
   const prompt = `
     Role: Medical Scheduler.
     Task: Create a roster for ${monthName} (${daysInMonth} days).
@@ -41,18 +41,25 @@ export const generateScheduleWithGemini = async (
     - Doctors: ${JSON.stringify(activeDoctors.map(d => ({ id: d.id, n: d.name, un: d.unavailableDates })))}
     - Holidays: ${JSON.stringify(config.customHolidays.map(h => ({d: h.date, n: h.name})))} (Includes Weekends).
 
-    Rules:
-    1. If doc has date in 'un', DO NOT assign.
-    2. Continuity: Afternoon doc = Night doc (Same Ward).
-    3. Separation: Gen doc != ICU doc (Same Shift).
-    4. Pattern (Holiday/Weekend):
-       - Doc A: Gen Morn -> ICU Aft -> ICU Night.
-       - Doc B: ICU Morn -> Gen Aft -> Gen Night.
-    5. Pattern (Weekday):
-       - Morn: null (Closed).
-       - Doc A: Gen Aft -> Gen Night.
-       - Doc B: ICU Aft -> ICU Night.
-    6. Fairness: Spread shifts evenly.
+    STRICT RULES (Must follow):
+    1. Unavailable: If a doctor has a date in their 'un' list, they CANNOT work any shift on that date (Morning, Afternoon, or Night).
+    2. Continuity: For ANY day (Weekday or Holiday), the Afternoon and Night shift on a specific ward must be the same doctor.
+       - General Ward: Afternoon Doc = Night Doc.
+       - ICU Ward: Afternoon Doc = Night Doc.
+    3. Separation: On any given shift, General Ward Doc != ICU Ward Doc.
+    4. Weekday Structure (Non-Holiday):
+       - Morning: Closed (null).
+       - Afternoon/Night: Assign 2 different doctors (one for Gen, one for ICU).
+    5. Holiday/Weekend Structure:
+       - Morning: Open. Requires 2 doctors.
+       - PATTERN A (Doctor 1): Morning General -> Afternoon ICU -> Night ICU.
+       - PATTERN B (Doctor 2): Morning ICU -> Afternoon General -> Night General.
+       - Doctor 1 != Doctor 2.
+
+    OPTIMIZATION GOALS (Prioritize in order):
+    1. Spacing: Ideally, leave at least 2 rest days between duty days for a doctor (e.g., Work, Rest, Rest, Work). If staffing is tight, 1 rest day is acceptable. Avoid consecutive working days.
+    2. Holiday Distribution: Distribute Holiday/Weekend shifts evenly. Target: Each doctor gets at least 1 holiday shift if possible. Minimize doctors with 0 holiday shifts.
+    3. Ward Balance: Over the month, try to balance each doctor's assignments so they do ~50% General Ward roles and ~50% ICU roles.
 
     Output: JSON Array of Objects with these short keys ONLY:
     {
