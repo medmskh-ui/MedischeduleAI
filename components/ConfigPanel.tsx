@@ -83,6 +83,12 @@ const ConfigPanel: React.FC<Props> = ({ config, setConfig, isAdmin }) => {
   const emptySlots = Array.from({ length: firstDayOfMonth }, (_, i) => i);
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
+  // Filter holidays for the currently selected month/year
+  const displayedHolidays = config.customHolidays.filter(h => {
+     const [y, m] = h.date.split('-').map(Number);
+     return y === config.year && (m - 1) === config.month;
+  });
+
   return (
     <div className="max-w-4xl mx-auto">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -212,12 +218,12 @@ const ConfigPanel: React.FC<Props> = ({ config, setConfig, isAdmin }) => {
             </div>
           )}
 
-          {/* List of custom holidays */}
-          {config.customHolidays.length > 0 && (
+          {/* List of custom holidays (Filtered by current month) */}
+          {displayedHolidays.length > 0 && (
             <div className="mt-6">
-              <h3 className="text-sm font-bold text-gray-700 mb-3">รายการวันหยุดที่กำหนดเอง</h3>
+              <h3 className="text-sm font-bold text-gray-700 mb-3">รายการวันหยุดที่กำหนดเอง (เดือนนี้)</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {config.customHolidays.map((h, idx) => (
+                {displayedHolidays.map((h, idx) => (
                   <div key={idx} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
                     <div className="flex items-center gap-2">
                        <div className="w-2 h-2 rounded-full bg-red-500"></div>

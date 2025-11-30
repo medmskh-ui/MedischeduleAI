@@ -268,7 +268,7 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
                           <CalendarX size={14} />
                           {doc.unavailableDates?.length > 0 
                              ? `${doc.unavailableDates.length} วัน`
-                             : 'ระบุวันลา'}
+                             : 'แจ้งวันไม่อยู่เวร'}
                         </button>
                       </td>
                       {isAdmin && (
