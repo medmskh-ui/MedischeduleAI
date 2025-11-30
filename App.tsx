@@ -8,8 +8,8 @@ import Login from './components/Login';
 import { generateScheduleWithGemini } from './services/geminiService';
 import { dataService } from './services/dataService';
 import { exportToPDF, exportToDocx } from './utils/exportUtils';
-import { getDaysInMonth, isWeekend, format } from 'date-fns';
-import { Sparkles, FileText, Download, Activity, CalendarDays, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
+import { getDaysInMonth, format } from 'date-fns';
+import { Sparkles, FileText, Activity, CalendarDays, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
 import th from 'date-fns/locale/th';
 
 type View = 'schedule' | 'doctors' | 'holidays';
@@ -27,44 +27,42 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   
-  // Track if initial data load is complete to prevent overwriting storage with empty states
+  // Track if initial data load is complete
   const [isDataLoaded, setIsDataLoaded] = useState(false);
-  
-  // Ref to prevent cyclic dependency on schedule regeneration
-  const isFirstRender = useRef(true);
 
-  // 1. Load Data on Mount
+  // 1. Load Data on Mount (Doctors & Config ONLY)
+  // We do NOT load schedule here anymore to avoid race conditions. 
+  // Schedule will be loaded by the "Month Change" effect.
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [loadedDoctors, loadedSchedule, loadedConfig] = await Promise.all([
+        const [loadedDoctors, loadedConfig] = await Promise.all([
           dataService.getDoctors(),
-          dataService.getSchedule(),
           dataService.getConfig()
         ]);
 
         if (loadedDoctors.length > 0) setDoctors(loadedDoctors);
-        if (loadedSchedule.length > 0) setSchedule(loadedSchedule);
         if (loadedConfig) setConfig(loadedConfig);
         
         setIsDataLoaded(true);
       } catch (error) {
-        console.error("Failed to load data:", error);
+        console.error("Failed to load initial data:", error);
         setIsDataLoaded(true); // Proceed anyway
       }
     };
     loadData();
   }, []);
 
-  // 2. Auto-Save Effects (Run only after data is loaded)
+  // 2. Auto-Save Effects
   useEffect(() => {
     if (isDataLoaded) {
       dataService.saveDoctors(doctors);
     }
   }, [doctors, isDataLoaded]);
 
+  // Only auto-save schedule if it has content to prevent overwriting with empty array during transitions
   useEffect(() => {
-    if (isDataLoaded) {
+    if (isDataLoaded && schedule.length > 0) {
       dataService.saveSchedule(schedule);
     }
   }, [schedule, isDataLoaded]);
@@ -75,71 +73,66 @@ const App: React.FC = () => {
     }
   }, [config, isDataLoaded]);
 
-  // 3. Initialize schedule structure when config changes (Month/Year change)
+  // 3. Handle Month/Year Change OR Config Change
+  // This logic is critical: It fetches existing data from DB and builds the view.
   useEffect(() => {
     if (!isDataLoaded) return;
     
-    const daysInMonth = getDaysInMonth(new Date(config.year, config.month));
-    const belongsToCurrentMonth = (dateStr: string) => {
-      const d = new Date(dateStr);
-      return d.getFullYear() === config.year && d.getMonth() === config.month;
+    const syncScheduleWithDb = async () => {
+      try {
+        // Always fetch the latest full schedule from DB to ensure we don't lose data
+        // when switching months or reloading.
+        const dbSchedule = await dataService.getSchedule();
+
+        const daysInMonth = getDaysInMonth(new Date(config.year, config.month));
+        const newMonthSchedule: DailySchedule[] = [];
+
+        for (let i = 1; i <= daysInMonth; i++) {
+          const date = new Date(config.year, config.month, i);
+          const dateStr = format(date, 'yyyy-MM-dd');
+          const dayOfWeek = date.getDay();
+          const isWeekendDay = dayOfWeek === 0 || dayOfWeek === 6;
+          const customHoliday = config.customHolidays.find(h => h.date === dateStr);
+          const isHoliday = isWeekendDay || !!customHoliday;
+
+          // Try to find this date in the fetched DB data
+          const existingDay = dbSchedule.find(s => s.date === dateStr);
+
+          if (existingDay) {
+            // If exists, use the shifts from DB but update holiday status (in case config changed)
+            newMonthSchedule.push({
+              ...existingDay,
+              isHoliday: isHoliday,
+              holidayName: customHoliday?.name,
+              // Ensure shifts object structure exists
+              shifts: existingDay.shifts || {
+                morning: isHoliday ? { icu: null, general: null } : undefined,
+                afternoon: { icu: null, general: null },
+                night: { icu: null, general: null }
+              }
+            });
+          } else {
+            // If no data in DB, create a fresh empty slot
+            newMonthSchedule.push({
+              date: dateStr,
+              isHoliday: isHoliday,
+              holidayName: customHoliday?.name,
+              shifts: {
+                morning: isHoliday ? { icu: null, general: null } : undefined,
+                afternoon: { icu: null, general: null },
+                night: { icu: null, general: null }
+              }
+            });
+          }
+        }
+        
+        setSchedule(newMonthSchedule);
+      } catch (error) {
+        console.error("Error syncing schedule:", error);
+      }
     };
 
-    // Check if the current schedule matches the requested month (start date)
-    const isCurrentMonthStart = schedule.length > 0 && belongsToCurrentMonth(schedule[0].date);
-
-    if (!isCurrentMonthStart) {
-      // Rebuild completely if empty or wrong start month
-      const newSchedule: DailySchedule[] = [];
-      for (let i = 1; i <= daysInMonth; i++) {
-        const date = new Date(config.year, config.month, i);
-        const dateStr = format(date, 'yyyy-MM-dd');
-        const dayOfWeek = date.getDay();
-        const isWeekendDay = dayOfWeek === 0 || dayOfWeek === 6;
-        const customHoliday = config.customHolidays.find(h => h.date === dateStr);
-        const isHoliday = isWeekendDay || !!customHoliday;
-
-        newSchedule.push({
-          date: dateStr,
-          isHoliday: isHoliday,
-          holidayName: customHoliday?.name,
-          shifts: {
-            morning: isHoliday ? { icu: null, general: null } : undefined,
-            afternoon: { icu: null, general: null },
-            night: { icu: null, general: null }
-          }
-        });
-      }
-      setSchedule(newSchedule);
-    } else {
-      // If we have data, we must ensure it strictly belongs to this month (filter out data from other months loaded from DB)
-      setSchedule(prev => {
-        // 1. Filter: Keep only days that belong to the selected month
-        const filtered = prev.filter(day => belongsToCurrentMonth(day.date));
-
-        // 2. Map: Update holidays info for the filtered days
-        return filtered.map(day => {
-          const dateObj = new Date(day.date);
-          const dayOfWeek = dateObj.getDay();
-          const isWeekendDay = dayOfWeek === 0 || dayOfWeek === 6;
-          const customHoliday = config.customHolidays.find(h => h.date === day.date);
-          const isHoliday = isWeekendDay || !!customHoliday;
-          
-          if (day.isHoliday !== isHoliday || day.holidayName !== customHoliday?.name) {
-             return {
-               ...day,
-               isHoliday,
-               holidayName: customHoliday?.name,
-               shifts: {
-                 ...day.shifts,
-                 morning: isHoliday && !day.shifts.morning ? { icu: null, general: null } : day.shifts.morning
-               }
-             };
-          }
-          return day;
-        });
-      });
-    }
+    syncScheduleWithDb();
 
   }, [config.year, config.month, config.customHolidays, isDataLoaded]);
 
@@ -182,8 +175,6 @@ const App: React.FC = () => {
       alert("กรุณาเพิ่มรายชื่อแพทย์ (Active) อย่างน้อย 2 ท่าน");
       return;
     }
-
-    // Removed client-side API Key check. The server now handles the key.
 
     setIsGenerating(true);
     try {
@@ -258,7 +249,7 @@ const App: React.FC = () => {
   const monthName = format(new Date(config.year, config.month), 'MMMM', { locale: th });
   const buddhistYear = config.year + 543;
   const isAdmin = user.role === 'admin';
-  const isViewer = user.role === 'viewer'; // Check viewer role
+  const isViewer = user.role === 'viewer';
 
   if (!isDataLoaded) {
     return <div className="min-h-screen flex items-center justify-center text-medical-600 font-bold">กำลังโหลดข้อมูล...</div>;
@@ -281,7 +272,7 @@ const App: React.FC = () => {
            </div>
 
            <div className="flex items-center gap-4">
-             {/* View Switcher (Desktop) - HIDE tabs for viewer */}
+             {/* View Switcher (Desktop) */}
              <nav className="hidden md:flex bg-gray-100 p-1 rounded-lg">
                 <button 
                   onClick={() => setCurrentView('schedule')}
@@ -289,7 +280,6 @@ const App: React.FC = () => {
                 >
                   ตารางเวร
                 </button>
-                {/* Viewer cannot see Doctors/Holidays tab */}
                 {!isViewer && (
                   <>
                     <button 
@@ -310,7 +300,6 @@ const App: React.FC = () => {
 
              <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
                <div className="hidden md:block text-right">
-                 {/* Display Name instead of Username */}
                  <div className="text-sm font-bold text-gray-800">{user.name || user.username}</div>
                  <div className="text-[10px] text-gray-500 capitalize">{user.role}</div>
                </div>
@@ -339,7 +328,6 @@ const App: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-center md:justify-end">
-                {/* Generate AI Button - ADMIN ONLY */}
                 {isAdmin && (
                   <>
                     <button
@@ -354,7 +342,6 @@ const App: React.FC = () => {
                   </>
                 )}
                 
-                {/* Export Buttons - EVERYONE */}
                 <button
                   onClick={handleExportPDF}
                   disabled={isExporting}
@@ -400,7 +387,7 @@ const App: React.FC = () => {
 
       </main>
 
-      {/* Mobile Navigation Bar - HIDE items for viewer */}
+      {/* Mobile Navigation Bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 md:hidden flex justify-around p-2 z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         <button 
           onClick={() => setCurrentView('schedule')}
