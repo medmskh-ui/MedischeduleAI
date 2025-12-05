@@ -194,7 +194,8 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
             </form>
           )}
 
-          <div className="overflow-hidden rounded-lg border border-gray-200">
+          {/* Desktop/Tablet Table View */}
+          <div className="hidden md:block overflow-hidden rounded-lg border border-gray-200">
             <table className="w-full text-left border-collapse">
               <thead className="bg-gray-100">
                 <tr>
@@ -288,12 +289,88 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
               </tbody>
             </table>
           </div>
-          <div className="mt-4 flex justify-between items-center text-sm text-gray-500">
+
+          {/* Mobile Card View (Vertical Layout) */}
+          <div className="md:hidden space-y-4">
+            {doctors.length === 0 ? (
+               <div className="p-8 text-center text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                 ยังไม่มีข้อมูลแพทย์
+               </div>
+            ) : filteredDoctors.length === 0 ? (
+               <div className="p-8 text-center text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                 ไม่พบข้อมูลที่ค้นหา
+               </div>
+            ) : (
+               filteredDoctors.map(doc => (
+                 <div key={doc.id} className={`rounded-xl border shadow-sm overflow-hidden ${doc.active ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-200'}`}>
+                    {/* Header / Info */}
+                    <div className="p-4 flex items-start gap-3">
+                       <div 
+                          className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-lg font-bold text-gray-600 shadow-sm border border-gray-100"
+                          style={{ backgroundColor: doc.color || '#eee' }}
+                       >
+                          {doc.name.charAt(0)}
+                       </div>
+                       <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-start">
+                             <h3 className={`font-bold text-base truncate pr-2 ${doc.active ? 'text-gray-800' : 'text-gray-400 line-through'}`}>
+                               {doc.name}
+                             </h3>
+                             {/* Status Indicator */}
+                             <button
+                                onClick={() => isAdmin && toggleActiveStatus(doc.id)}
+                                disabled={!isAdmin}
+                                className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${doc.active ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'}`}
+                             >
+                               <Power size={14} />
+                             </button>
+                          </div>
+                          <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
+                             <Phone size={14} /> {doc.phone || '-'}
+                          </p>
+                          {!doc.active && <span className="text-xs text-red-400 mt-1 block">(ไม่ได้ปฏิบัติงาน)</span>}
+                       </div>
+                    </div>
+
+                    {/* Actions Footer */}
+                    <div className="bg-gray-50/50 p-3 border-t border-gray-100 flex gap-2">
+                       <button
+                          onClick={() => openLeaveModal(doc)}
+                          disabled={!doc.active}
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-sm font-medium transition
+                            ${!doc.active ? 'opacity-50 cursor-not-allowed bg-gray-100 text-gray-400' : 
+                               doc.unavailableDates?.length > 0 
+                                ? 'bg-red-50 text-red-700 border border-red-200' 
+                                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                            }
+                          `}
+                       >
+                          <CalendarX size={16} />
+                          {doc.unavailableDates?.length > 0 
+                             ? `ลา ${doc.unavailableDates.length} วัน`
+                             : 'วันลา'}
+                       </button>
+
+                       {isAdmin && (
+                          <button
+                            onClick={() => removeDoctor(doc.id)}
+                            className="flex-shrink-0 w-10 flex items-center justify-center rounded-lg bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                       )}
+                    </div>
+                 </div>
+               ))
+            )}
+          </div>
+
+          <div className="mt-4 flex flex-col sm:flex-row justify-between items-center text-sm text-gray-500">
              <div className="flex gap-4">
                 <span className="flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Active ({doctors.filter(d => d.active).length})</span>
                 <span className="flex items-center gap-1"><div className="w-2 h-2 bg-gray-300 rounded-full"></div> Inactive ({doctors.filter(d => !d.active).length})</span>
              </div>
-             <div>จำนวนแพทย์ทั้งหมด {doctors.length} ท่าน</div>
+             <div className="mt-2 sm:mt-0">จำนวนแพทย์ทั้งหมด {doctors.length} ท่าน</div>
           </div>
         </div>
       </div>
