@@ -140,7 +140,8 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
   return (
     <div className="max-w-4xl mx-auto">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gray-50/50">
+        {/* Header - Improved Mobile Padding and Flex */}
+        <div className="p-4 md:p-6 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gray-50/50">
           <div>
             <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
               <User className="text-medical-600" /> {isAdmin ? 'จัดการรายชื่อแพทย์' : 'รายชื่อแพทย์'}
@@ -149,7 +150,7 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
               {isAdmin ? 'เพิ่ม ลบ แก้ไขข้อมูล และกำหนดสถานะ (Active/Inactive)' : 'ดูรายชื่อและเบอร์ติดต่อแพทย์'}
             </p>
           </div>
-          <div className="relative">
+          <div className="relative w-full md:w-auto">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <input 
               type="text"
@@ -161,10 +162,11 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
           </div>
         </div>
 
-        <div className="p-6 bg-white">
+        {/* Content Body - Improved Mobile Padding */}
+        <div className="p-4 md:p-6 bg-white">
           {/* Add Doctor Form - ADMIN ONLY */}
           {isAdmin && (
-            <form onSubmit={addDoctor} className="flex flex-col md:flex-row gap-3 items-end mb-8 p-4 bg-medical-50 rounded-xl border border-medical-100">
+            <form onSubmit={addDoctor} className="flex flex-col md:flex-row gap-3 items-end mb-6 md:mb-8 p-4 bg-medical-50 rounded-xl border border-medical-100">
                <div className="flex-1 w-full">
                  <label className="block text-xs font-semibold text-gray-600 mb-1 ml-1">ชื่อ-นามสกุล</label>
                  <input
@@ -187,9 +189,9 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
                </div>
                <button
                 type="submit"
-                className="w-full md:w-auto bg-medical-600 text-white px-6 py-2.5 rounded-lg hover:bg-medical-700 transition flex items-center justify-center gap-2 font-medium"
+                className="w-full md:w-auto bg-medical-600 text-white px-6 py-2.5 rounded-lg hover:bg-medical-700 transition flex items-center justify-center gap-2 font-medium whitespace-nowrap"
               >
-                <UserPlus size={20} /> เพิ่มแพทย์
+                <UserPlus size={20} /> <span className="md:hidden lg:inline">เพิ่มแพทย์</span>
               </button>
             </form>
           )}
@@ -290,54 +292,58 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
             </table>
           </div>
 
-          {/* Mobile Card View (Vertical Layout) */}
-          <div className="md:hidden space-y-4">
+          {/* Mobile Card View (Vertical Layout) - Optimized for Portrait */}
+          <div className="md:hidden space-y-3">
             {doctors.length === 0 ? (
-               <div className="p-8 text-center text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+               <div className="p-6 text-center text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200 text-sm">
                  ยังไม่มีข้อมูลแพทย์
                </div>
             ) : filteredDoctors.length === 0 ? (
-               <div className="p-8 text-center text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+               <div className="p-6 text-center text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200 text-sm">
                  ไม่พบข้อมูลที่ค้นหา
                </div>
             ) : (
                filteredDoctors.map(doc => (
                  <div key={doc.id} className={`rounded-xl border shadow-sm overflow-hidden ${doc.active ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-200'}`}>
                     {/* Header / Info */}
-                    <div className="p-4 flex items-start gap-3">
+                    <div className="p-3 flex items-start gap-3">
                        <div 
-                          className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-lg font-bold text-gray-600 shadow-sm border border-gray-100"
+                          className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-base font-bold text-gray-600 shadow-sm border border-gray-100 mt-1"
                           style={{ backgroundColor: doc.color || '#eee' }}
                        >
                           {doc.name.charAt(0)}
                        </div>
                        <div className="flex-1 min-w-0">
-                          <div className="flex justify-between items-start">
-                             <h3 className={`font-bold text-base truncate pr-2 ${doc.active ? 'text-gray-800' : 'text-gray-400 line-through'}`}>
-                               {doc.name}
-                             </h3>
-                             {/* Status Indicator */}
+                          <div className="flex justify-between items-start gap-2">
+                             <div className="min-w-0">
+                                <h3 className={`font-bold text-sm truncate ${doc.active ? 'text-gray-800' : 'text-gray-400 line-through'}`}>
+                                  {doc.name}
+                                </h3>
+                                <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                                  <Phone size={12} /> {doc.phone || '-'}
+                                </p>
+                             </div>
+                             
+                             {/* Status Indicator / Toggle */}
                              <button
                                 onClick={() => isAdmin && toggleActiveStatus(doc.id)}
                                 disabled={!isAdmin}
-                                className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${doc.active ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'}`}
+                                className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center border transition-all ${doc.active ? 'bg-green-50 text-green-600 border-green-100' : 'bg-gray-100 text-gray-400 border-gray-200'}`}
                              >
                                <Power size={14} />
                              </button>
                           </div>
-                          <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                             <Phone size={14} /> {doc.phone || '-'}
-                          </p>
-                          {!doc.active && <span className="text-xs text-red-400 mt-1 block">(ไม่ได้ปฏิบัติงาน)</span>}
+                          
+                          {!doc.active && <span className="text-[10px] text-red-400 mt-1 block">(ไม่ได้ปฏิบัติงาน)</span>}
                        </div>
                     </div>
 
                     {/* Actions Footer */}
-                    <div className="bg-gray-50/50 p-3 border-t border-gray-100 flex gap-2">
+                    <div className="bg-gray-50/50 p-2.5 border-t border-gray-100 flex gap-2">
                        <button
                           onClick={() => openLeaveModal(doc)}
                           disabled={!doc.active}
-                          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-sm font-medium transition
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium transition
                             ${!doc.active ? 'opacity-50 cursor-not-allowed bg-gray-100 text-gray-400' : 
                                doc.unavailableDates?.length > 0 
                                 ? 'bg-red-50 text-red-700 border border-red-200' 
@@ -345,10 +351,10 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
                             }
                           `}
                        >
-                          <CalendarX size={16} />
+                          <CalendarX size={14} />
                           {doc.unavailableDates?.length > 0 
                              ? `ลา ${doc.unavailableDates.length} วัน`
-                             : 'วันลา'}
+                             : 'แจ้งวันลา'}
                        </button>
 
                        {isAdmin && (
@@ -356,7 +362,7 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
                             onClick={() => removeDoctor(doc.id)}
                             className="flex-shrink-0 w-10 flex items-center justify-center rounded-lg bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition"
                           >
-                            <Trash2 size={18} />
+                            <Trash2 size={16} />
                           </button>
                        )}
                     </div>
@@ -365,12 +371,12 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
             )}
           </div>
 
-          <div className="mt-4 flex flex-col sm:flex-row justify-between items-center text-sm text-gray-500">
+          <div className="mt-4 flex flex-col sm:flex-row justify-between items-center text-sm text-gray-500 gap-2">
              <div className="flex gap-4">
                 <span className="flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Active ({doctors.filter(d => d.active).length})</span>
                 <span className="flex items-center gap-1"><div className="w-2 h-2 bg-gray-300 rounded-full"></div> Inactive ({doctors.filter(d => !d.active).length})</span>
              </div>
-             <div className="mt-2 sm:mt-0">จำนวนแพทย์ทั้งหมด {doctors.length} ท่าน</div>
+             <div>แพทย์ทั้งหมด {doctors.length} ท่าน</div>
           </div>
         </div>
       </div>

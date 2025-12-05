@@ -249,11 +249,10 @@ const Login: React.FC<Props> = ({ onLogin }) => {
       
       {/* Footer */}
       <div className="mt-8 text-center text-gray-400 text-xs font-medium">
-         © 2025 MediSchedule AI by Karpark ❘ Version 1.1.2
+         © 2025 MediSchedule AI by Karpark ❘ Version 1.1.3
       </div>
     </div>
   );
 };
 
 export default Login;
-    
