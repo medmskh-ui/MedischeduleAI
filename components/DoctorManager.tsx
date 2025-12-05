@@ -141,7 +141,7 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
     <div className="max-w-4xl mx-auto">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         {/* Header - Improved Mobile Padding and Flex */}
-        <div className="p-4 md:p-6 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gray-50/50">
+        <div className="p-3 md:p-6 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gray-50/50">
           <div>
             <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
               <User className="text-medical-600" /> {isAdmin ? 'จัดการรายชื่อแพทย์' : 'รายชื่อแพทย์'}
@@ -163,10 +163,10 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
         </div>
 
         {/* Content Body - Improved Mobile Padding */}
-        <div className="p-4 md:p-6 bg-white">
+        <div className="p-3 md:p-6 bg-white">
           {/* Add Doctor Form - ADMIN ONLY */}
           {isAdmin && (
-            <form onSubmit={addDoctor} className="flex flex-col md:flex-row gap-3 items-end mb-6 md:mb-8 p-4 bg-medical-50 rounded-xl border border-medical-100">
+            <form onSubmit={addDoctor} className="flex flex-col md:flex-row gap-3 items-end mb-6 md:mb-8 p-3 md:p-4 bg-medical-50 rounded-xl border border-medical-100">
                <div className="flex-1 w-full">
                  <label className="block text-xs font-semibold text-gray-600 mb-1 ml-1">ชื่อ-นามสกุล</label>
                  <input
@@ -354,7 +354,7 @@ const DoctorManager: React.FC<Props> = ({ doctors, setDoctors, config, isAdmin }
                           <CalendarX size={14} />
                           {doc.unavailableDates?.length > 0 
                              ? `ลา ${doc.unavailableDates.length} วัน`
-                             : 'แจ้งวันลา'}
+                             : 'แจ้งวันไม่อยู่เวร'}
                        </button>
 
                        {isAdmin && (
